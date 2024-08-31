@@ -1,0 +1,29 @@
+{
+  "name": "koishi-plugin-ygo-card-search",
+  "version": "1.0.1",
+  "description": "rikoneko自用，适用于Koishi的游戏王查卡插件",
+  "main": "lib/index.js",
+  "typings": "lib/index.d.ts",
+  "files": [
+    "lib",
+    "dist"
+  ],
+  "license": "GNU GPLv3",
+  "keywords": [
+    "koishi",
+    "plugin",
+    "yugioh"
+  ],
+  "peerDependencies": {
+    "koishi": "^4.17.12"
+  },
+  "dependencies": {
+    "axios": "^1.7.6"
+  },
+  "koishi": {
+    "description": {
+      "en": "A YuGiOh card checking plugin for personal use",
+      "zh": "一个自用的游戏王查卡插件"
+    }
+  }
+}
