@@ -5,8 +5,7 @@ export const name = 'ygo-card-search'
 
 export const usage = `
 ## 开发中
-这插件是花了十几分钟手搓的试验品，功能不全，目前不建议任何人安装使用。
-如果你想参与开发完善，请联系QQ：2371567590
+这插件是花了十几分钟手搓的试验品，功能不全，目前自用。
 `
 
 export interface Config {}
@@ -28,6 +27,7 @@ export function apply(ctx: Context) {
         const { types, desc } = text;
 
         return `
+<img src="https://cdn.233.momobako.com/ygopro/pics/${id}.jpg"/>
 卡片ID: ${id}
 中文卡名: ${cn_name}  MD卡名: ${md_name}
 日文名: ${jp_name}  英文名: ${en_name}
