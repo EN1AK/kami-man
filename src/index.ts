@@ -122,8 +122,10 @@ export function apply(ctx: Context, config: Config) {
         // 返回格式化的卡片信息
         const result = `
 <img src="https://cdn.233.momobako.com/ygopro/pics/${id}.jpg"/>
-中文卡名: ${cn_name}  MD卡名: ${md_name}
-日文名: ${jp_name}  英文名: ${en_name}
+中文卡名: ${cn_name}
+MD卡名: ${md_name}
+日文名: ${jp_name}
+英文名: ${en_name}
 ${types}
 ${desc}
         `;
