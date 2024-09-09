@@ -124,9 +124,7 @@ export function apply(ctx: Context, config: Config) {
 <img src="https://cdn.233.momobako.com/ygopro/pics/${id}.jpg"/>
 中文卡名: ${cn_name}  MD卡名: ${md_name}
 日文名: ${jp_name}  英文名: ${en_name}
-类型-种族/属性-星级-ATK/DEF:
 ${types}
-描述:
 ${desc}
         `;
 
