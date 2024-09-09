@@ -1,10 +1,10 @@
 {
   "name": "koishi-plugin-ygo-card-search",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "peerDependencies": {
     "koishi": "^4.17.12"
   },
-  "description": "rikoneko自用，适用于Koishi的游戏王查卡插件",
+  "description": "适用于Koishi的游戏王查卡插件，使用 百鸽（ygocdb.com） API获取数据。",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
@@ -17,12 +17,14 @@
     "yugioh"
   ],
   "dependencies": {
-    "axios": "^1.7.7"
+    "axios": "^1.7.7",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7"
   },
   "koishi": {
     "description": {
       "en": "A YuGiOh card checking plugin for personal use",
-      "zh": "一个自用的游戏王查卡插件"
+      "zh": "游戏王查卡插件"
     }
   },
   "repository": {
