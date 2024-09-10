@@ -27,7 +27,7 @@ export const usage = `
 interface Config {
   debug: boolean;
   enableReplace: boolean;
-  replaceConfigPath: string; 
+  replaceConfigPath: string;
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -99,7 +99,7 @@ export function apply(ctx: Context, config: Config) {
               console.log(`原卡片名称 "${originalName}" 被替换为标准名称: ${cardname}`);
             }
 
-            break; 
+            break;
           }
         }
 
@@ -172,19 +172,19 @@ ${pdesc ? `灵摆：[${pdesc}]` : ''}
       if (!config.enableReplace) {
         return '替换功能未启用，请在配置中开启。';
       }
-  
+
       switch (action) {
         case 'add': {
           const [standardName, alias] = args?.split(':').map(s => s.trim()) || [];
           if (!standardName || !alias) {
             return '格式错误，正确格式为：rpcfg add 标准卡名:别名';
           }
-  
+
           // 如果 replaceConfig 中没有此标准卡名，创建一个空的数组
           if (!replaceConfig[standardName]) {
             replaceConfig[standardName] = [];
           }
-  
+
           // 检查别名是否已经存在，防止重复添加
           if (!replaceConfig[standardName].includes(alias)) {
             replaceConfig[standardName].push(alias);
@@ -194,30 +194,30 @@ ${pdesc ? `灵摆：[${pdesc}]` : ''}
             return `别名 "${alias}" 已经存在于标准卡名 "${standardName}" 的规则中。`;
           }
         }
-  
+
         case 'delete': {
           const [standardName, alias] = args?.split(':').map(s => s.trim()) || [];
           if (!standardName || !alias) {
             return '格式错误，正确格式为：rpcfg delete 标准卡名:别名';
           }
-  
+
           // 确认是否存在对应的标准卡名及其别名
           if (!replaceConfig[standardName] || !replaceConfig[standardName].includes(alias)) {
             return `别名 "${alias}" 不存在于标准卡名 "${standardName}" 的规则中。`;
           }
-  
+
           // 从别名数组中删除指定别名
           replaceConfig[standardName] = replaceConfig[standardName].filter(item => item !== alias);
           saveReplaceConfig();
           return `成功删除替换规则：${alias} -> ${standardName}`;
         }
-  
+
         case 'reload': {
           // 重新加载配置文件
           loadReplaceConfig();
           return '替换规则已重新加载。';
         }
-  
+
         default: {
           return '未知操作，支持的操作有：add、delete、reload。';
         }
