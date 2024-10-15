@@ -1,6 +1,10 @@
 {
   "name": "koishi-plugin-ygo-card-search",
+<<<<<<< HEAD
   "version": "2.0.1",
+=======
+  "version": "1.2.2",
+>>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
   "peerDependencies": {
     "koishi": "^4.18.0"
   },
@@ -23,7 +27,11 @@
   },
   "koishi": {
     "description": {
+<<<<<<< HEAD
       "en": "A YuGiOh card searching plugin for Koishi.",
+=======
+      "en": "A YuGiOh card checking plugin for Koishi.",
+>>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
       "zh": "适用于Koishi的游戏王查卡插件"
     }
   },
