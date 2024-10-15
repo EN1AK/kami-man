@@ -1,13 +1,17 @@
-# koishi-plugin-ygo-card-search
+<div align="center">
+  <img class="logo-light" width="520" src="https://alist.rikoneko.xyz/d/B2/site-img/koishi-uwu.png" alt="logo">
+  <h1 id="koishi"><a href="https://github.com/RikoNeko/koishi-plugin-ygo-card-search" target="_blank">koishi-plugin-ygo-card-search</a></h1>
+  <p>A YuGiOh card searching plugin for Koishi.</p>
+</div>
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-ygo-card-search?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-ygo-card-search)
 
-开发中的适用于Koishi的游戏王查卡插件，使用 [百鸽](ygocdb.com) 的API获取数据。
+开发中的适用于Koishi的游戏王查卡插件，使用 [百鸽](https://ygocdb.com) 的API获取数据。
 
 ## 如何使用
-命令`ck`或`查卡`后空格+卡名即可查询卡片信息。目前在不打开卡片名称替换的情况下，只能严格匹配原本卡名。
+命令`ck`或`查卡`后空格+卡名即可查询卡片信息。目前支持通过`-d`参数进行限定范围的搜索。
 
-使用例：`ck 灰流丽`，`查卡 灰流丽`
+使用例：`ck 灰流丽`，`查卡 灰流丽`，`ck -d "不死族 调整" 灰流丽`，`查卡 -d "不死族 调整" 灰流丽`
 
 ## 卡片名称替换
 替换规则的 JSON 文件格式如下：
