@@ -7,11 +7,8 @@ export const name = 'ygo-card-search';
 export const usage = `
 ## 命令说明
 *  \`ck 卡片名称\` - 查询卡片信息。
-<<<<<<< HEAD
 *  \`ck -d "类型" 卡片名称\` - 限定类型的查询卡片信息。
 *  \`pl 名称\` - 批量查询卡片信息。
-=======
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
 *  \`rpcfg add 标准卡名:别名\` - 添加替换规则。
 *  \`rpcfg delete 标准卡名:别名\` - 删除替换规则。
 *  \`rpcfg reload\` - 重新加载替换规则。
@@ -43,21 +40,12 @@ export const Config: Schema<Config> = Schema.object({
 
 export function apply(ctx: Context, config: Config) {
   let replaceConfig: Record<string, string[]> = {};
-<<<<<<< HEAD
   const log = (message: string) => { if (config.debug) console.log(message); };
 
   const handleFileOperation = async (filePath: string, operation: 'load' | 'save', data?: Record<string, string[]>) => {
     try {
       if (operation === 'load') {
         const rawData = await fs.promises.readFile(filePath, 'utf-8');
-=======
-
-  function loadReplaceConfig() {
-    if (config.enableReplace) {
-      try {
-        const replaceConfigFilePath = path.resolve(config.replaceConfigPath);
-        const rawData = fs.readFileSync(replaceConfigFilePath, 'utf-8');
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
         replaceConfig = JSON.parse(rawData);
         log('替换规则成功加载:\n' + JSON.stringify(replaceConfig, null, 2));
       } else {
@@ -69,7 +57,6 @@ export function apply(ctx: Context, config: Config) {
     }
   };
 
-<<<<<<< HEAD
   const loadReplaceConfig = async () => {
     if (config.enableReplace) {
       const filePath = path.resolve(config.replaceConfigPath);
@@ -93,114 +80,21 @@ export function apply(ctx: Context, config: Config) {
     const { id, cn_name, md_name, jp_name, en_name, text } = card;
     log('解析的卡片信息:\n' + JSON.stringify(card, null, 2));
     return `
-=======
-  function saveReplaceConfig() {
-    try {
-      const replaceConfigFilePath = path.resolve(config.replaceConfigPath);
-      fs.writeFileSync(replaceConfigFilePath, JSON.stringify(replaceConfig, null, 2), 'utf-8');
-      if (config.debug) {
-        console.log('替换规则已更新并保存至文件:');
-        console.log(replaceConfig);
-      }
-    } catch (error) {
-      console.error('保存替换规则时发生错误:');
-      console.error(error);
-    }
-  }
-
-  loadReplaceConfig();
-
-  ctx.command('ck <cardname:text>', '查询游戏王卡片信息')
-    .alias('查卡')
-    .action(async ({ session }, cardname) => {
-      if (config.debug) {
-        console.log(`调试模式已开启`);
-        console.log(`收到查询请求，卡片名称: ${cardname}`);
-      }
-
-      if (!cardname) {
-        const message = `错误: 没有提供卡片名称`;
-        if (config.debug) console.log(message);
-        return message;
-      }
-
-      if (config.enableReplace) {
-        let replaced = false;
-
-        for (const [standardName, aliases] of Object.entries(replaceConfig)) {
-          if (aliases.includes(cardname)) {
-            const originalName = cardname;
-            cardname = standardName;
-            replaced = true;
-
-            if (config.debug) {
-              console.log(`原卡片名称 "${originalName}" 被替换为标准名称: ${cardname}`);
-            }
-
-            break;
-          }
-        }
-
-        if (!replaced && config.debug) {
-          console.log(`卡片名称 "${cardname}" 未找到对应的替换规则，保持原名称。`);
-        }
-      }
-
-      try {
-        const url = `https://ygocdb.com/api/v0/?search=${encodeURIComponent(cardname)}`;
-        if (config.debug) {
-          console.log(`发起 API 请求: ${url}`);
-        }
-
-        const response = await axios.get(url);
-
-        if (config.debug) {
-          console.log('API 响应成功，返回数据:');
-          console.log(response.data);
-        }
-
-        const cardData = response.data.result[0];
-        if (!cardData) {
-          const message = `未找到卡片：${cardname}`;
-          if (config.debug) console.log(message);
-          return message;
-        }
-
-        const { id, cn_name, md_name, jp_name, en_name, text } = cardData;
-        const { types, pdesc, desc } = text;
-
-        if (config.debug) {
-          console.log('解析的卡片信息:');
-          console.log({
-            id, cn_name, md_name, jp_name, en_name, types, pdesc, desc,
-          });
-        }
-
-        const result = `
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
 <img src="https://cdn.233.momobako.com/ygopro/pics/${id}.jpg"/>
 中文卡名: ${cn_name}
 MD卡名: ${md_name}
 日文名: ${jp_name}
 英文名: ${en_name}
-<<<<<<< HEAD
 ${text.types}
 ${text.desc}
 ${text.pdesc ? `灵摆：[${text.pdesc}]` : ''}
     `;
   };
-=======
-${types}
-${desc}
-${pdesc ? `灵摆：[${pdesc}]` : ''}
-        `;
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
 
   const filterCardsByType = (cards: any[], typeFilter: string) => {
     return cards.filter(card => !typeFilter || matchCardWithType(card.text.types, typeFilter));
   };
 
-<<<<<<< HEAD
   const matchCardWithType = (types: string, type: string): boolean => {
     const typeArray = type.split(' ').map(t => t.trim().toLowerCase());
     const cardTypeString = types.replace(/[\[\]]/g, '').toLowerCase();
@@ -209,12 +103,6 @@ ${pdesc ? `灵摆：[${pdesc}]` : ''}
     const def = atkDefMatch ? atkDefMatch[2] : null;
     const pendulumMatch = cardTypeString.match(/(\d+)\/(\d+)/g);
     const pendulum = pendulumMatch ? pendulumMatch[pendulumMatch.length - 1] : null;
-=======
-        return result;
-      } catch (error) {
-        console.error('API 请求或处理时发生错误:');
-        console.error(error);
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
 
     return typeArray.every(t => {
       if (t.startsWith('atk') && atk) return parseInt(t.replace('atk', '')) === parseInt(atk);
@@ -222,7 +110,6 @@ ${pdesc ? `灵摆：[${pdesc}]` : ''}
       if (t.startsWith('p') && pendulum) return parseInt(t.replace('p', '')) === parseInt(pendulum);
       return cardTypeString.includes(t);
     });
-<<<<<<< HEAD
   };
 
   const handleApiRequest = async (url: string) => {
@@ -328,58 +215,4 @@ ${pdesc ? `灵摆：[${pdesc}]` : ''}
     });
 
   loadReplaceConfig(); // 初始加载替换规则
-=======
-
-  ctx.command('rpcfg <action:string> [args:text]', '管理替换规则')
-    .action(({ session }, action, args) => {
-      if (!config.enableReplace) {
-        return '替换功能未启用，请在配置中开启。';
-      }
-
-      switch (action) {
-        case 'add': {
-          const [standardName, alias] = args?.split(':').map(s => s.trim()) || [];
-          if (!standardName || !alias) {
-            return '格式错误，正确格式为：rpcfg add 标准卡名:别名';
-          }
-
-          if (!replaceConfig[standardName]) {
-            replaceConfig[standardName] = [];
-          }
-
-          if (!replaceConfig[standardName].includes(alias)) {
-            replaceConfig[standardName].push(alias);
-            saveReplaceConfig();
-            return `成功添加替换规则：${alias} -> ${standardName}`;
-          } else {
-            return `别名 "${alias}" 已经存在于标准卡名 "${standardName}" 的规则中。`;
-          }
-        }
-
-        case 'delete': {
-          const [standardName, alias] = args?.split(':').map(s => s.trim()) || [];
-          if (!standardName || !alias) {
-            return '格式错误，正确格式为：rpcfg delete 标准卡名:别名';
-          }
-
-          if (!replaceConfig[standardName] || !replaceConfig[standardName].includes(alias)) {
-            return `别名 "${alias}" 不存在于标准卡名 "${standardName}" 的规则中。`;
-          }
-
-          replaceConfig[standardName] = replaceConfig[standardName].filter(item => item !== alias);
-          saveReplaceConfig();
-          return `成功删除替换规则：${alias} -> ${standardName}`;
-        }
-
-        case 'reload': {
-          loadReplaceConfig();
-          return '替换规则已重新加载。';
-        }
-
-        default: {
-          return '未知操作，支持的操作有：add、delete、reload。';
-        }
-      }
-    });
->>>>>>> 07791891828c14486e7b419b9d6ee57c4be34f17
 }
