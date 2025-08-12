@@ -4,7 +4,7 @@
   <p>A YuGiOh card searching plugin for Koishi.</p>
 </div>
 
-[![npm](https://img.shields.io/npm/v/koishi-plugin-ygo-card-search?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-ygo-card-search)
+[![npm](https://img.shields.io/npm/v/koishi-plugin-kami-man?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-kami-man)
 
 开发中的适用于Koishi的游戏王查卡插件，使用 [百鸽](https://ygocdb.com) 的API获取数据。
 
