@@ -6,7 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-kami-man?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-kami-man)
 
-开发中的适用于Koishi的游戏王查卡插件，使用 [百鸽](https://ygocdb.com) 的API获取数据。
+基于ygo-card-search(https://github.com/RikoNeko/koishi-plugin-ygo-card-search)插件开发的qq机器人
 
 ## 如何使用
 命令`ck`或`查卡`后空格+卡名即可查询卡片信息。目前支持通过`-d`参数进行限定范围的搜索。
