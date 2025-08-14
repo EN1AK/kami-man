@@ -1,12 +1,12 @@
 <div align="center">
   <img class="logo-light" width="520" src="https://alist.rikoneko.xyz/d/B2/site-img/koishi-uwu.png" alt="logo">
-  <h1 id="koishi"><a href="https://github.com/RikoNeko/koishi-plugin-ygo-card-search" target="_blank">kami-man 神人bot</a></h1>
+  <h1 id="koishi"><a href="https://github.com/EN1AK/kami-man" target="_blank">kami-man 神人bot</a></h1>
   <p>A YuGiOh card searching plugin for Koishi.</p>
 </div>
 
 [![npm](https://img.shields.io/npm/v/koishi-plugin-kami-man?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-kami-man)
 
-基于ygo-card-search(https://github.com/RikoNeko/koishi-plugin-ygo-card-search)插件开发的qq机器人
+基于[ygo-card-search](https://github.com/RikoNeko/koishi-plugin-ygo-card-search) 插件开发的qq机器人
 
 ## 如何使用
 命令`ck`或`查卡`后空格+卡名即可查询卡片信息。目前支持通过`-d`参数进行限定范围的搜索。
