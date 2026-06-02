@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual Environment
+venv/
+.venv/
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Runtime Data
+data/*.json
+
+# Generated Files
+assets/help.png
+
+# Environment Variables
+.env
