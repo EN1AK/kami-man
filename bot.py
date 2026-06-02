@@ -2,7 +2,7 @@ import nonebot
 from nonebot.adapters.onebot.v11 import Adapter as OneBotV11Adapter
 
 nonebot.init(
-    host="127.0.0.1",
+    host="0.0.0.0",
     port=18080,
     command_start={"/", ""},
     superusers={"2954452539"},

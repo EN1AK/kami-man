@@ -79,7 +79,7 @@ def format_riftbound_card(card: dict) -> str:
 
     if card.get("zh_text"):
         lines.append("")
-        lines.append(clean_effect_text(card["zh_text"]))
+        lines.append(card["zh_text"])
 
     if card.get("artist"):
         lines.append("")
