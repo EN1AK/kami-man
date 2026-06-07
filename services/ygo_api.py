@@ -18,6 +18,52 @@ async def search_cards(name: str) -> list[dict]:
         return data.get("result", [])
 
 
+async def fetch_card_faqs(card_id: int) -> list[dict]:
+    url = f"{YGOCDB_API}card/{card_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, params={"show": "all"})
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+
+    card_id_key = str(card_id)
+    faqs: list[dict] = []
+
+    for faq in data.get("faqs") or []:
+        refer = faq.get("refer") or {}
+        if refer and card_id_key not in refer:
+            continue
+
+        question = html_to_text(faq.get("question", ""))
+        answer = html_to_text(faq.get("answer", ""))
+
+        if not question or not answer:
+            continue
+
+        faqs.append(
+            {
+                "fid": faq.get("fid", ""),
+                "date": faq.get("date", ""),
+                "question": question,
+                "answer": answer,
+                "refer": refer,
+            }
+        )
+
+    return faqs
+
+
+def html_to_text(html: str) -> str:
+    if not html:
+        return ""
+
+    soup = BeautifulSoup(html, "html.parser")
+    return soup.get_text(" ", strip=True)
+
+
 def format_card_text(card: dict) -> str:
     text = card.get("text", {})
 
@@ -51,39 +97,3 @@ async def download_image_base64(card_id: int) -> Optional[str]:
                 continue
 
     return None
-
-
-async def fetch_faq(faq_id: int) -> Optional[dict]:
-    url = "https://www.db.yugioh-card.com/yugiohdb/faq_search.action"
-
-    params = {
-        "ope": 5,
-        "fid": faq_id,
-        "keyword": "",
-        "tag": -1,
-        "request_locale": "ja",
-    }
-
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=10, headers=headers) as client:
-            r = await client.get(url, params=params)
-            r.raise_for_status()
-
-        soup = BeautifulSoup(r.text, "html.parser")
-
-        question = soup.find(id="question_text")
-        answer = soup.find(id="answer_text")
-
-        if not question or not answer:
-            return None
-
-        return {
-            "question": question.get_text(" ", strip=True),
-            "answer": answer.get_text(" ", strip=True),
-        }
-    except Exception:
-        return None

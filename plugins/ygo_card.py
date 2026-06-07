@@ -13,7 +13,7 @@ from services.ygo_api import (
     search_cards,
     format_card_text,
     download_image_base64,
-    fetch_faq,
+    fetch_card_faqs,
 )
 
 
@@ -149,7 +149,7 @@ async def handle_ruling(bot: Bot, event: MessageEvent, args: Message = CommandAr
         await ruling.finish(f"未找到卡片: {cardname}")
 
     card = cards[0]
-    faqs = card.get("faqs") or []
+    faqs = await fetch_card_faqs(card["id"])
 
     if not faqs:
         await ruling.finish(f"卡片「{card.get('cn_name', cardname)}」暂无裁定信息")
@@ -164,15 +164,13 @@ async def handle_ruling(bot: Bot, event: MessageEvent, args: Message = CommandAr
     messages.append(header)
 
     count = 0
-    for faq_id in faqs:
+    for faq in faqs:
         if count >= 10:
             break
 
-        faq = await fetch_faq(faq_id)
-        if not faq:
-            continue
-
         msg = Message()
+        if faq.get("date"):
+            msg += f"日期：{faq['date']}\n"
         msg += f"问题：{faq['question']}\n"
         msg += f"答案：{faq['answer']}"
 
