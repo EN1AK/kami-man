@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import sys
 from pathlib import Path
 from nonebot.exception import FinishedException
 from nonebot import on_command
@@ -26,7 +27,7 @@ async def handle_help():
     try:
         if not HELP_IMAGE.exists() or HELP_MD.stat().st_mtime > HELP_IMAGE.stat().st_mtime:
             subprocess.run(
-                ["python", str(RENDER_SCRIPT)],
+                [sys.executable, str(RENDER_SCRIPT)],
                 cwd=PROJECT_ROOT,
                 timeout=20,
                 check=True,
