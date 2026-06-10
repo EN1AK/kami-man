@@ -40,6 +40,11 @@ async def send_forward_msg(
     messages: list[Message],
     nickname: str = "kami-man",
 ):
+    async def send_plain_messages():
+        await bot.send(event, "合并转发发送失败，已切换为普通消息发送。")
+        for msg in messages:
+            await bot.send(event, msg)
+
     nodes = [
         make_forward_node(
             user_id=int(event.self_id),
@@ -49,20 +54,23 @@ async def send_forward_msg(
         for msg in messages
     ]
 
-    if isinstance(event, GroupMessageEvent):
-        await bot.call_api(
-            "send_group_forward_msg",
-            group_id=event.group_id,
-            messages=nodes,
-        )
-    elif isinstance(event, PrivateMessageEvent):
-        await bot.call_api(
-            "send_private_forward_msg",
-            user_id=event.user_id,
-            messages=nodes,
-        )
-    else:
-        await bot.send(event, "当前消息类型暂不支持合并转发。")
+    try:
+        if isinstance(event, GroupMessageEvent):
+            await bot.call_api(
+                "send_group_forward_msg",
+                group_id=event.group_id,
+                messages=nodes,
+            )
+        elif isinstance(event, PrivateMessageEvent):
+            await bot.call_api(
+                "send_private_forward_msg",
+                user_id=event.user_id,
+                messages=nodes,
+            )
+        else:
+            await send_plain_messages()
+    except Exception:
+        await send_plain_messages()
 
 
 async def build_card_message(card: dict) -> Message:
