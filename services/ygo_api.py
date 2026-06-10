@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 
 
 YGOCDB_API = "https://ygocdb.com/api/v0/"
-PRIMARY_IMG = "https://cdn.233.momobako.com/ygopro/pics/{id}.jpg"
+PRIMARY_IMG = "https://cdn.233.momobako.com/ygoimg/sc/{id}.jpg"
 FALLBACK_IMG = "https://cdncf.moecube.com/ygopro-super-pre/data/pics/{id}.jpg"
 
 
