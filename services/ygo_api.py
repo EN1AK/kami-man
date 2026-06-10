@@ -33,9 +33,6 @@ async def fetch_card_faqs(card_id: int) -> list[dict]:
     faqs: list[dict] = []
 
     for faq in data.get("faqs") or []:
-        refer = faq.get("refer") or {}
-        if refer and card_id_key not in refer:
-            continue
 
         question = html_to_text(faq.get("question", ""))
         answer = html_to_text(faq.get("answer", ""))
@@ -49,7 +46,6 @@ async def fetch_card_faqs(card_id: int) -> list[dict]:
                 "date": faq.get("date", ""),
                 "question": question,
                 "answer": answer,
-                "refer": refer,
             }
         )
 
