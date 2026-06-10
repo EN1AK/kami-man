@@ -1,3 +1,4 @@
+import base64
 import asyncio
 import os
 import subprocess
@@ -33,9 +34,8 @@ async def handle_help():
                 check=True,
             )
 
-        await help_cmd.finish(
-            MessageSegment.image(f"file:///{HELP_IMAGE.as_posix()}")
-        )
+        image = base64.b64encode(HELP_IMAGE.read_bytes()).decode("utf-8")
+        await help_cmd.finish(MessageSegment.image(f"base64://{image}"))
 
     except FinishedException:
         raise
