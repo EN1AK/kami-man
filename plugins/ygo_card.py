@@ -156,11 +156,7 @@ async def handle_ruling(bot: Bot, event: MessageEvent, args: Message = CommandAr
 
     messages: list[Message] = []
 
-    header = Message()
-    img = await download_image_base64(card["id"])
-    if img:
-        header += MessageSegment.image(img)
-    header += f"{card.get('cn_name', cardname)} 的裁定信息："
+    header = Message(f"{card.get('cn_name', cardname)} 的裁定信息：")
     messages.append(header)
 
     count = 0
