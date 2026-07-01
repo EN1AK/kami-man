@@ -1,5 +1,6 @@
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
+from nonebot.rule import Rule
 
 from services.ygo_rag_api import (
     map_rag_error,
@@ -8,7 +9,14 @@ from services.ygo_rag_api import (
 from services.ygo_rag_messages import build_rag_message_texts, extract_mentioned_question
 
 
-rag_qa = on_message(priority=20, block=False)
+async def is_group_bot_mention(bot: Bot, event: MessageEvent) -> bool:
+    if not isinstance(event, GroupMessageEvent):
+        return False
+    mentioned, _ = extract_mentioned_question(event.message, str(bot.self_id))
+    return mentioned
+
+
+rag_qa = on_message(rule=Rule(is_group_bot_mention), priority=20, block=False)
 
 def make_forward_node(user_id: int, nickname: str, message: Message):
     return {

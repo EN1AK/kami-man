@@ -3,6 +3,7 @@ from services.ygo_rag_messages import (
     build_rag_message_texts,
     chunk_text,
     extract_mentioned_question,
+    extract_text_mention_question,
 )
 
 
@@ -47,6 +48,36 @@ def test_extract_mentioned_question_handles_empty_question_after_mention():
 
     assert mentioned is True
     assert question == ""
+
+
+def test_extract_mentioned_question_accepts_text_nickname_prefix():
+    segments = [
+        FakeSegment(
+            "text",
+            "@\u795e\u4eba \u6709\u6ca1\u6709\u6548\u679c\u7c7b\u4f3c\u6211\u8eab\u4f5c\u76fe\u7684\u5361\uff1f",
+        ),
+    ]
+
+    mentioned, question = extract_mentioned_question(segments, "12345")
+
+    assert mentioned is True
+    assert question == "\u6709\u6ca1\u6709\u6548\u679c\u7c7b\u4f3c\u6211\u8eab\u4f5c\u76fe\u7684\u5361\uff1f"
+
+
+def test_extract_text_mention_question_handles_empty_text_question():
+    mentioned, question = extract_text_mention_question("@\u795e\u4eba")
+
+    assert mentioned is True
+    assert question == ""
+
+
+def test_extract_text_mention_question_ignores_unprefixed_text():
+    mentioned, question = extract_text_mention_question(
+        "\u6709\u6ca1\u6709\u6548\u679c\u7c7b\u4f3c\u6211\u8eab\u4f5c\u76fe\u7684\u5361\uff1f"
+    )
+
+    assert mentioned is False
+    assert question == "\u6709\u6ca1\u6709\u6548\u679c\u7c7b\u4f3c\u6211\u8eab\u4f5c\u76fe\u7684\u5361\uff1f"
 
 
 def test_build_rag_message_texts_prefers_structured_card_blocks_and_warnings():

@@ -1,7 +1,36 @@
+import os
+
 from services.ygo_rag_api import YgoRagResponse
 
 
 FALLBACK_CHUNK_SIZE = 1800
+DEFAULT_TEXT_MENTION_ALIASES = ("\u795e\u4eba",)
+TEXT_MENTION_ALIASES_ENV = "YGO_RAG_TEXT_MENTION_ALIASES"
+
+
+def get_text_mention_aliases(env_value: str | None = None) -> list[str]:
+    raw_value = os.getenv(TEXT_MENTION_ALIASES_ENV) if env_value is None else env_value
+    if raw_value is None:
+        return list(DEFAULT_TEXT_MENTION_ALIASES)
+
+    aliases = [alias.strip().lstrip("@\uff20") for alias in raw_value.split(",")]
+    return [alias for alias in aliases if alias]
+
+
+def extract_text_mention_question(
+    text: str,
+    aliases: list[str] | tuple[str, ...] | None = None,
+) -> tuple[bool, str]:
+    stripped = text.strip()
+    active_aliases = aliases if aliases is not None else get_text_mention_aliases()
+
+    for prefix in ("@", "\uff20"):
+        for alias in active_aliases:
+            marker = f"{prefix}{alias}"
+            if stripped.startswith(marker):
+                return True, stripped[len(marker) :].strip()
+
+    return False, stripped
 
 
 def extract_mentioned_question(message, bot_id: str) -> tuple[bool, str]:
@@ -17,7 +46,11 @@ def extract_mentioned_question(message, bot_id: str) -> tuple[bool, str]:
         elif seg.type != "at":
             parts.append(str(seg))
 
-    return mentioned, "".join(parts).strip()
+    question = "".join(parts).strip()
+    if mentioned:
+        return True, question
+
+    return extract_text_mention_question(question)
 
 
 def chunk_text(text: str, size: int = FALLBACK_CHUNK_SIZE) -> list[str]:
