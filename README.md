@@ -11,11 +11,13 @@
 - `pl 卡名` / `批量查卡 卡名`：批量查询卡片，使用合并转发返回。
 - `裁定 卡名`：查询卡片裁定，每页 10 条。
 - `裁定 卡名 2` / `裁定 卡名 p2` / `裁定 卡名 第2页`：查看后续裁定分页。
+- 群聊中 `@Bot 问题`：调用独立部署的 `ygo-rag` 服务，使用 LLM rerank 和 LLM 回答生成，按卡片拆分为合并转发消息。私聊不会触发该功能。
 
 数据来源：
 
 - 卡片与裁定：`https://ygocdb.com/api/v0/`
 - 卡图 CDN：见 `services/ygo_api.py`
+- RAG 问答：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/query`
 
 ### MyCard 对战平台
 
@@ -50,10 +52,13 @@ Riftbound 卡片数据文件为 `data/riftbound_cards.json`，可通过 `assets/
 │   ├── admin.py              # 帮助图、代码更新与服务重启
 │   ├── mycard.py             # MyCard 查询和订阅
 │   ├── riftbound_card.py     # Riftbound 查卡
+│   ├── ygo_rag_qa.py         # 游戏王 RAG 群聊问答
 │   └── ygo_card.py           # 游戏王查卡和裁定
 ├── services/
 │   ├── mycard_api.py         # MyCard API 与本地 JSON 存储
 │   ├── riftbound_api.py      # Riftbound 本地卡库查询
+│   ├── ygo_rag_api.py        # ygo-rag HTTP API 客户端
+│   ├── ygo_rag_messages.py   # ygo-rag 消息分段与格式化
 │   └── ygo_api.py            # YGOCDB API、卡图下载、裁定解析
 ├── assets/
 │   ├── help.md               # 帮助文案
@@ -128,6 +133,53 @@ ws://host.docker.internal:18080/onebot/v11/ws
 ```
 
 具体以 NapCat 的网络和 compose 配置为准。
+
+## 游戏王 RAG 问答
+
+RAG 问答功能不在 Bot 进程内加载模型。生产环境需要在同一台 Bot 服务器上独立部署 `ygo-rag` Web 服务，并确保该服务可以访问卡库、Chroma 索引和 DeepSeek。
+
+`ygo-rag` 服务示例：
+
+```bash
+export DEEPSEEK_API_KEY="..."
+export HF_HUB_OFFLINE="1"
+python -m rag_agent web --host 127.0.0.1 --port 7860
+```
+
+Bot 默认调用：
+
+```text
+http://127.0.0.1:7860/api/query
+```
+
+Bot 侧可选环境变量：
+
+```bash
+export YGO_RAG_API_URL="http://127.0.0.1:7860/api/query"
+export YGO_RAG_TIMEOUT_SECONDS="120"
+export YGO_RAG_TOP_K="5"
+export YGO_RAG_RERANK_CANDIDATES="5"
+export YGO_RAG_STRUCTURED_MAX_BLOCK_CHARS="1800"
+```
+
+Bot 请求默认启用：
+
+```json
+{
+  "semantic": true,
+  "rerank": false,
+  "llm_rerank": true,
+  "llm": true
+}
+```
+
+触发方式：
+
+```text
+@Bot 有没有效果类似我身作盾的卡？
+```
+
+该功能只处理群聊消息。私聊不会触发，也不会返回 RAG 问答回复。
 
 ## 帮助图
 
