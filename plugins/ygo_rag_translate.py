@@ -65,6 +65,6 @@ async def handle_ygo_rag_translate(bot: Bot, event: MessageEvent):
         bot,
         event,
         texts,
-        nickname="\u6e38\u620f\u738b\u7ffb\u8bd1",
+        nickname="\u795e\u4eba",
         fallback_notice="\u5408\u5e76\u8f6c\u53d1\u53d1\u9001\u5931\u8d25\uff0c\u5df2\u5207\u6362\u4e3a\u666e\u901a\u6d88\u606f\u53d1\u9001\u3002",
     )
