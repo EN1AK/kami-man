@@ -12,12 +12,14 @@
 - `裁定 卡名`：查询卡片裁定，每页 10 条。
 - `裁定 卡名 2` / `裁定 卡名 p2` / `裁定 卡名 第2页`：查看后续裁定分页。
 - 群聊中 `@Bot 问题`：调用独立部署的 `ygo-rag` 服务，使用 LLM rerank 和 LLM 回答生成，按卡片拆分为合并转发消息。私聊不会触发该功能。
+- 群聊中 `@Bot 翻译 文本` / `@Bot translate 文本`：调用 `ygo-rag` agent 的 LLM 翻译接口，长回复会拆分为合并转发消息。私聊不会触发该功能。
 
 数据来源：
 
 - 卡片与裁定：`https://ygocdb.com/api/v0/`
 - 卡图 CDN：见 `services/ygo_api.py`
 - RAG 问答：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/query`
+- LLM 翻译：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/translate`
 
 ### MyCard 对战平台
 
@@ -53,12 +55,16 @@ Riftbound 卡片数据文件为 `data/riftbound_cards.json`，可通过 `assets/
 │   ├── mycard.py             # MyCard 查询和订阅
 │   ├── riftbound_card.py     # Riftbound 查卡
 │   ├── ygo_rag_qa.py         # 游戏王 RAG 群聊问答
+│   ├── ygo_rag_translate.py  # ygo-rag LLM 群聊翻译
 │   └── ygo_card.py           # 游戏王查卡和裁定
 ├── services/
 │   ├── mycard_api.py         # MyCard API 与本地 JSON 存储
+│   ├── onebot_forward.py     # OneBot 合并转发发送 helper
 │   ├── riftbound_api.py      # Riftbound 本地卡库查询
 │   ├── ygo_rag_api.py        # ygo-rag HTTP API 客户端
 │   ├── ygo_rag_messages.py   # ygo-rag 消息分段与格式化
+│   ├── ygo_rag_translation_api.py       # ygo-rag 翻译 API 客户端
+│   ├── ygo_rag_translation_messages.py  # ygo-rag 翻译命令解析与分段
 │   └── ygo_api.py            # YGOCDB API、卡图下载、裁定解析
 ├── assets/
 │   ├── help.md               # 帮助文案
@@ -160,6 +166,12 @@ export YGO_RAG_TIMEOUT_SECONDS="120"
 export YGO_RAG_TOP_K="5"
 export YGO_RAG_RERANK_CANDIDATES="5"
 export YGO_RAG_STRUCTURED_MAX_BLOCK_CHARS="1800"
+export YGO_RAG_TRANSLATE_API_URL="http://127.0.0.1:7860/api/translate"
+export YGO_RAG_TRANSLATE_TIMEOUT_SECONDS="120"
+export YGO_RAG_TRANSLATE_SOURCE_LANG="auto"
+export YGO_RAG_TRANSLATE_TARGET_LANG="zh-CN"
+export YGO_RAG_TRANSLATE_STRUCTURED_MAX_BLOCK_CHARS="1800"
+export YGO_RAG_TRANSLATE_COMMAND_ALIASES="翻译,translate"
 ```
 
 Bot 请求默认启用：
@@ -179,7 +191,14 @@ Bot 请求默认启用：
 @Bot 有没有效果类似我身作盾的卡？
 ```
 
-该功能只处理群聊消息。私聊不会触发，也不会返回 RAG 问答回复。
+翻译触发方式：
+
+```text
+@Bot 翻译 Once per turn: You can target 1 card on the field; destroy it.
+@Bot translate 你好
+```
+
+RAG 问答和翻译功能只处理群聊消息。私聊不会触发，也不会返回 RAG 问答或翻译回复。
 
 ## 帮助图
 

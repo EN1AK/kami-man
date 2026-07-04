@@ -53,6 +53,25 @@ def extract_mentioned_question(message, bot_id: str) -> tuple[bool, str]:
     return extract_text_mention_question(question)
 
 
+def extract_rag_question(
+    message,
+    bot_id: str,
+    *,
+    plain_text: str | None = None,
+    to_me: bool = False,
+) -> tuple[bool, str]:
+    mentioned, question = extract_mentioned_question(message, bot_id)
+    if mentioned:
+        return True, question
+
+    if not to_me:
+        return False, question
+
+    fallback_text = (plain_text if plain_text is not None else question).strip()
+    text_mentioned, stripped_question = extract_text_mention_question(fallback_text)
+    return True, stripped_question if text_mentioned else fallback_text
+
+
 def chunk_text(text: str, size: int = FALLBACK_CHUNK_SIZE) -> list[str]:
     if not text:
         return []

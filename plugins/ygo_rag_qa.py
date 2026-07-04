@@ -6,13 +6,28 @@ from services.ygo_rag_api import (
     map_rag_error,
     query_ygo_rag,
 )
-from services.ygo_rag_messages import build_rag_message_texts, extract_mentioned_question
+from services.ygo_rag_messages import build_rag_message_texts, extract_rag_question
+from services.ygo_rag_translation_messages import extract_translation_request
 
 
 async def is_group_bot_mention(bot: Bot, event: MessageEvent) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
-    mentioned, _ = extract_mentioned_question(event.message, str(bot.self_id))
+    mentioned, _ = extract_rag_question(
+        event.message,
+        str(bot.self_id),
+        plain_text=event.get_plaintext(),
+        to_me=event.to_me,
+    )
+    if mentioned:
+        _, is_translation_command, _ = extract_translation_request(
+            event.message,
+            str(bot.self_id),
+            plain_text=event.get_plaintext(),
+            to_me=event.to_me,
+        )
+        if is_translation_command:
+            return False
     return mentioned
 
 
@@ -61,8 +76,21 @@ async def handle_rag_qa(bot: Bot, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
         return
 
-    mentioned, question = extract_mentioned_question(event.message, str(bot.self_id))
+    mentioned, question = extract_rag_question(
+        event.message,
+        str(bot.self_id),
+        plain_text=event.get_plaintext(),
+        to_me=event.to_me,
+    )
     if not mentioned:
+        return
+    _, is_translation_command, _ = extract_translation_request(
+        event.message,
+        str(bot.self_id),
+        plain_text=event.get_plaintext(),
+        to_me=event.to_me,
+    )
+    if is_translation_command:
         return
 
     if not question:
