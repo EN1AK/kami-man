@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Kami OneBot WebSocket watchdog
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=kami-onebot-watchdog.service
+
+[Install]
+WantedBy=timers.target

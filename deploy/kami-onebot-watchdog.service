@@ -1,0 +1,11 @@
+[Unit]
+Description=Kami OneBot WebSocket watchdog
+After=docker.service kami-man.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+Environment=BOT_PORT=18080
+Environment=BOT_SERVICE=kami-man.service
+Environment=ONEBOT_CONTAINER=snowluma
+ExecStart=/usr/local/bin/kami-onebot-watchdog
