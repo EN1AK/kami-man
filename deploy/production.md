@@ -34,25 +34,23 @@ This document records the production relationship between `kami-man` and
 ws://host.docker.internal:18080/onebot/v11/ws
 ```
 
-## Current RAG Contract
+## Current RAG Agent Contract
 
 The bot calls:
 
 ```text
-POST http://127.0.0.1:7861/api/query
+POST http://127.0.0.1:7861/api/agent
 ```
 
 The bot sends these request fields:
 
 ```json
 {
-  "query": "...",
-  "top_k": 10,
-  "rerank_candidates": 10,
+  "text": "...",
   "semantic": true,
   "rerank": false,
   "llm_rerank": true,
-  "llm": true,
+  "max_steps": 6,
   "structured_max_block_chars": 1800
 }
 ```
@@ -61,12 +59,24 @@ The bot consumes these response fields:
 
 - `answer`
 - `warnings`
+- `exhausted`
 - `structured.blocks[*].type`
-- `structured.blocks[*].text`
-- `structured.blocks[*].truncated`
+- `structured.blocks[*].tool`
+- `structured.blocks[*].ok`
+- `structured.blocks[*].summary`
+- `structured.blocks[*].result`
 
-The RAG service may return additional fields such as `structured_query` and
-`filter_diagnostics`; the bot should ignore fields it does not consume.
+The agent block result may contain nested specialist structured blocks from
+`search_cards` or `translate_text`, or `natural_answer` from `adjudicate`.
+The bot should ignore fields it does not consume.
+
+## Legacy RAG Query Contract
+
+The old card-similarity endpoint remains available for direct service testing:
+
+```text
+POST http://127.0.0.1:7861/api/query
+```
 
 ## Current Translation Contract
 
@@ -110,6 +120,10 @@ Bot-side drop-in:
 Current bot-side values:
 
 ```text
+YGO_RAG_AGENT_API_URL=http://127.0.0.1:7861/api/agent
+YGO_RAG_AGENT_TIMEOUT_SECONDS=240
+YGO_RAG_AGENT_MAX_STEPS=6
+YGO_RAG_AGENT_STRUCTURED_MAX_BLOCK_CHARS=1800
 YGO_RAG_API_URL=http://127.0.0.1:7861/api/query
 YGO_RAG_TIMEOUT_SECONDS=240
 YGO_RAG_TOP_K=10
@@ -153,7 +167,7 @@ Do not print, commit, or copy the DeepSeek API key into documentation.
 
 Update this section after coordinated deployments.
 
-- `ygo-rag`: `d17d360 Improve structured filtered recall`
+- `ygo-rag`: `5a38ec3 Add agentic ruling RAG and unified assistant`
 - `ygo-rag` data: uploaded from local `D:\workspace\rag\data` on 2026-07-02
 - RAG smoke-test candidate count: `total_candidates=14819`
 - `kami-man`: local workspace contains the RAG bot integration and OneBot
@@ -168,6 +182,8 @@ Use this when only bot code changes.
 ```bash
 cd /home/ubuntu/qqbot/kami-man
 python -m py_compile \
+  services/ygo_rag_agent_api.py \
+  services/ygo_rag_agent_messages.py \
   services/ygo_rag_messages.py \
   services/ygo_rag_translation_api.py \
   services/ygo_rag_translation_messages.py \

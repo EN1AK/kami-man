@@ -2,11 +2,12 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 from nonebot.rule import Rule
 
-from services.ygo_rag_api import (
-    map_rag_error,
-    query_ygo_rag,
+from services.ygo_rag_agent_api import (
+    map_agent_error,
+    query_ygo_rag_agent,
 )
-from services.ygo_rag_messages import build_rag_message_texts, extract_rag_question
+from services.ygo_rag_agent_messages import build_rag_agent_message_texts
+from services.ygo_rag_messages import extract_rag_question
 from services.ygo_rag_translation_messages import extract_translation_request
 
 
@@ -98,12 +99,12 @@ async def handle_rag_qa(bot: Bot, event: MessageEvent):
         return
 
     try:
-        response = await query_ygo_rag(question)
+        response = await query_ygo_rag_agent(question)
     except Exception as exc:
-        await bot.send(event, map_rag_error(exc))
+        await bot.send(event, map_agent_error(exc))
         return
 
-    texts = build_rag_message_texts(question, response)
+    texts = build_rag_agent_message_texts(question, response)
     if not texts:
         await bot.send(event, "RAG 服务没有返回可发送的回答。")
         return

@@ -11,14 +11,14 @@
 - `pl 卡名` / `批量查卡 卡名`：批量查询卡片，使用合并转发返回。
 - `裁定 卡名`：查询卡片裁定，每页 10 条。
 - `裁定 卡名 2` / `裁定 卡名 p2` / `裁定 卡名 第2页`：查看后续裁定分页。
-- 群聊中 `@Bot 问题`：调用独立部署的 `ygo-rag` 服务，使用 LLM rerank 和 LLM 回答生成，按卡片拆分为合并转发消息。私聊不会触发该功能。
+- 群聊中 `@Bot 问题`：调用独立部署的 `ygo-rag` 统一 Agent，由 Agent 自动选择查卡、翻译或裁定工具，并用合并转发返回。私聊不会触发该功能。
 - 群聊中 `@Bot 翻译 文本` / `@Bot translate 文本`：调用 `ygo-rag` agent 的 LLM 翻译接口，长回复会拆分为合并转发消息。私聊不会触发该功能。
 
 数据来源：
 
 - 卡片与裁定：`https://ygocdb.com/api/v0/`
 - 卡图 CDN：见 `services/ygo_api.py`
-- RAG 问答：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/query`
+- RAG Agent：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/agent`
 - LLM 翻译：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/translate`
 
 ### MyCard 对战平台
@@ -61,8 +61,10 @@ Riftbound 卡片数据文件为 `data/riftbound_cards.json`，可通过 `assets/
 │   ├── mycard_api.py         # MyCard API 与本地 JSON 存储
 │   ├── onebot_forward.py     # OneBot 合并转发发送 helper
 │   ├── riftbound_api.py      # Riftbound 本地卡库查询
-│   ├── ygo_rag_api.py        # ygo-rag HTTP API 客户端
-│   ├── ygo_rag_messages.py   # ygo-rag 消息分段与格式化
+│   ├── ygo_rag_agent_api.py          # ygo-rag 统一 Agent API 客户端
+│   ├── ygo_rag_agent_messages.py     # ygo-rag Agent 消息分段与格式化
+│   ├── ygo_rag_api.py        # ygo-rag 旧版查卡 RAG API 客户端
+│   ├── ygo_rag_messages.py   # ygo-rag 提及解析与旧版 RAG 消息格式化
 │   ├── ygo_rag_translation_api.py       # ygo-rag 翻译 API 客户端
 │   ├── ygo_rag_translation_messages.py  # ygo-rag 翻译命令解析与分段
 │   └── ygo_api.py            # YGOCDB API、卡图下载、裁定解析
@@ -152,15 +154,19 @@ export HF_HUB_OFFLINE="1"
 python -m rag_agent web --host 127.0.0.1 --port 7860
 ```
 
-Bot 默认调用：
+普通 `@Bot 问题` 默认调用统一 Agent：
 
 ```text
-http://127.0.0.1:7860/api/query
+http://127.0.0.1:7860/api/agent
 ```
 
 Bot 侧可选环境变量：
 
 ```bash
+export YGO_RAG_AGENT_API_URL="http://127.0.0.1:7860/api/agent"
+export YGO_RAG_AGENT_TIMEOUT_SECONDS="240"
+export YGO_RAG_AGENT_MAX_STEPS="6"
+export YGO_RAG_AGENT_STRUCTURED_MAX_BLOCK_CHARS="1800"
 export YGO_RAG_API_URL="http://127.0.0.1:7860/api/query"
 export YGO_RAG_TIMEOUT_SECONDS="120"
 export YGO_RAG_TOP_K="5"
@@ -174,14 +180,14 @@ export YGO_RAG_TRANSLATE_STRUCTURED_MAX_BLOCK_CHARS="1800"
 export YGO_RAG_TRANSLATE_COMMAND_ALIASES="翻译,translate"
 ```
 
-Bot 请求默认启用：
+普通 `@Bot 问题` 的 Agent 请求默认启用：
 
 ```json
 {
   "semantic": true,
   "rerank": false,
   "llm_rerank": true,
-  "llm": true
+  "max_steps": 6
 }
 ```
 
@@ -189,6 +195,7 @@ Bot 请求默认启用：
 
 ```text
 @Bot 有没有效果类似我身作盾的卡？
+@Bot 双方场上都只有一只怪兽时，对方发动破坏效果，我方怪兽可以代替破坏吗？
 ```
 
 翻译触发方式：
