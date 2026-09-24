@@ -9,6 +9,7 @@ This document records the production relationship between `kami-man` and
 - Bot repository: `/home/ubuntu/qqbot/kami-man`
 - RAG repository: `/home/ubuntu/qqbot/ygo-rag`
 - RAG data backups: `/home/ubuntu/qqbot/ygo-rag-data-backups`
+- Riftbound RAG repository: `/home/ubuntu/qqbot/riftsim`
 
 ## Services
 
@@ -20,6 +21,21 @@ This document records the production relationship between `kami-man` and
   - Runs the RAG HTTP service.
   - Entrypoint: `python -m rag_agent web --host 127.0.0.1 --port 7861`
   - Listens on `127.0.0.1:7861`
+  - Also serves the Riftbound gateway route `POST /api/rift/query` (consume-path
+    alias `/api/rift/api/query` for kami-man base-URL composition)
+- `rift-rag.service`
+  - Runs the Riftbound rules RAG backend.
+  - Entrypoint: `./.venv/bin/python scripts/rag/rag_server.py --host 127.0.0.1 --port 7862 --preload`
+  - Working directory: `/home/ubuntu/qqbot/riftsim`
+  - Listens on `127.0.0.1:7862`
+  - Data: `workspace/final/rules.db` + `cards_bilingual.db` tracked in git;
+    `workspace/rag/rules_vectors.npy` + `rules_index.json` uploaded out of band;
+    `BAAI/bge-m3` fetched server-side into the HF cache.
+  - Secrets in `/home/ubuntu/qqbot/riftsim/.env` (`OPENAI_API_KEY` /
+    `OPENAI_BASE_URL` / `RAG_LLM_MODEL`, tuning `RAG_AGENT_MAX_STEPS=3` /
+    `RAG_REQUEST_TIMEOUT=240`). Same do-not-document-secrets rule applies.
+  - Bot trigger: group-message aliases `符文规则` / `符文裁定` (plugin
+    `plugins/rift_rag_qa.py`).
 - `kami-onebot-watchdog.timer`
   - Runs every 2 minutes.
   - Restarts the `snowluma` OneBot container if `kami-man.service` is active
@@ -137,6 +153,10 @@ YGO_RAG_TRANSLATE_STRUCTURED_MAX_BLOCK_CHARS=1800
 YGO_RAG_TRANSLATE_COMMAND_ALIASES=翻译,translate
 ```
 
+Current bot-side Riftbound rules env names (see [.env.example](file:///c:/Users/Mortis/Desktop/Workspace/kami-man/.env.example)):
+
+- Deployed on the live host: `RIFT_RAG_BASE_URL=http://127.0.0.1:7861/api/rift` (routes through the ygo-rag gateway; switch to `http://127.0.0.1:7862` to bypass the gateway) and `RIFT_RAG_TIMEOUT_SECONDS=290`, appended to the existing drop-in `/etc/systemd/system/kami-man.service.d/ygo-rag.conf`. Timeout chain: bot 290 > gateway `RIFTBOUND_RAG_TIMEOUT_SECONDS=270` (drop-in `/etc/systemd/system/ygo-rag.service.d/rift.conf`) > upstream `RAG_REQUEST_TIMEOUT=240`.
+
 RAG service unit and drop-ins:
 
 ```text
@@ -167,11 +187,9 @@ Do not print, commit, or copy the DeepSeek API key into documentation.
 
 Update this section after coordinated deployments.
 
-- `ygo-rag`: `5a38ec3 Add agentic ruling RAG and unified assistant`
-- `ygo-rag` data: uploaded from local `D:\workspace\rag\data` on 2026-07-02
-- RAG smoke-test candidate count: `total_candidates=14819`
-- `kami-man`: local workspace contains the RAG bot integration and OneBot
-  watchdog deployment files
+- `ygo-rag`: `dd80b64 Add Riftbound rules gateway (contract-v2 pass-through), design doc, pytest guidance cleanup`
+- `kami-man`: `6933251 rift-rag trigger aliases -> 符文规则/符文裁定; drop misplaced openspec change; fix whitespace-topic / fullwidth-comma / adapter-compat issues`
+- `riftsim`: `0fbe382 rift-rag agent 模式与契约 v2：planner→工具循环 + 引用校验 + 确定性回退`
 
 ## Update Workflows
 
