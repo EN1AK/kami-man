@@ -2,13 +2,16 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent
 from nonebot.rule import Rule
 
-from services.onebot_forward import send_group_forward_msg
+from services.onebot_forward import send_group_forward_nodes
 from services.rift_rag_api import map_rift_rag_error, query_rift_rag
 from services.rift_rag_messages import (
-    build_rift_rag_message_texts,
+    build_rift_rag_nodes,
     extract_text_mention_question,
     is_rift_alias_message,
 )
+
+EMPTY_QUESTION_TEXT = "请在命令后写下问题内容"
+FORWARD_FALLBACK_NOTICE = "合并转发发送失败，已切换为普通消息发送。"
 
 
 async def is_group_rift_alias(bot: Bot, event: MessageEvent) -> bool:
@@ -36,10 +39,7 @@ async def handle_rift_rag_qa(bot: Bot, event: MessageEvent):
         return
 
     if not question:
-        await bot.send(
-            event,
-            "请在别名后输入要查询的符文规则问题，例如：符文规则 伤害结算时守卫什么时候生效",
-        )
+        await bot.send(event, EMPTY_QUESTION_TEXT)
         return
 
     try:
@@ -48,15 +48,15 @@ async def handle_rift_rag_qa(bot: Bot, event: MessageEvent):
         await bot.send(event, map_rift_rag_error(exc))
         return
 
-    texts = build_rift_rag_message_texts(question, response)
-    if not texts:
-        await bot.send(event, "符文规则服务没有返回可发送的回答。")
-        return
+    sender_name = None
+    if event.sender is not None:
+        sender_name = event.sender.card or event.sender.nickname
 
-    await send_group_forward_msg(
-        bot,
-        event,
-        texts,
-        nickname="符文规则 RAG",
-        fallback_notice="合并转发发送失败，已切换为普通消息发送。",
+    nodes = build_rift_rag_nodes(
+        question,
+        response,
+        sender_name=sender_name,
+        sender_user_id=event.user_id,
     )
+
+    await send_group_forward_nodes(bot, event, nodes, FORWARD_FALLBACK_NOTICE)

@@ -28,6 +28,16 @@ async def send_group_forward_msg(
         for text in texts
     ]
 
+    await send_group_forward_nodes(bot, event, nodes, fallback_notice)
+
+
+async def send_group_forward_nodes(
+    bot: Bot,
+    event: GroupMessageEvent,
+    nodes: list[dict],
+    fallback_notice: str,
+):
+    """发送合并转发节点；仅当合并转发 API 失败时退回普通消息逐条发送。"""
     try:
         await bot.call_api(
             "send_group_forward_msg",
@@ -36,5 +46,10 @@ async def send_group_forward_msg(
         )
     except Exception:
         await bot.send(event, fallback_notice)
-        for text in texts:
-            await bot.send(event, text)
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            content = (node.get("data") or {}).get("content")
+            if content is None:
+                continue
+            await bot.send(event, content)

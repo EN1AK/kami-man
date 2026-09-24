@@ -1,35 +1,45 @@
+"""Riftbound 规则 RAG HTTP 客户端（contract v2，容忍旧版响应）。"""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
 
+from services.qa_common import (
+    RIFT_QA_EMPTY_RESULT,
+    map_rag_qa_error,
+    rift_rag_qa_base_url,
+)
 
-DEFAULT_API_URL = "http://127.0.0.1:7862/api/query"
 DEFAULT_TIMEOUT_SECONDS = 240.0
 DEFAULT_TOP_K = 6
-
-RIFT_RAG_TIMEOUT = "符文规则查询超时，请稍后再试。"
-RIFT_RAG_HTTP_ERROR = "符文规则服务查询失败，请稍后再试。"
-RIFT_RAG_NETWORK_ERROR = "无法连接符文规则服务，请确认服务已启动。"
-RIFT_RAG_INVALID_RESPONSE = "符文规则服务返回了无效响应。"
+DEFAULT_MODE = "agent"
+VALID_MODES = ("agent", "oneshot")
 
 
 @dataclass(frozen=True)
 class RiftRagSettings:
-    api_url: str = DEFAULT_API_URL
+    base_url: str = field(default_factory=rift_rag_qa_base_url)
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     top_k: int = DEFAULT_TOP_K
+    mode: str = DEFAULT_MODE
+    trace: bool = False
+
+    @property
+    def api_url(self) -> str:
+        return f"{self.base_url.rstrip('/')}/api/query"
 
     @classmethod
     def from_env(cls) -> "RiftRagSettings":
         return cls(
-            api_url=os.getenv("RIFT_RAG_API_URL", DEFAULT_API_URL),
+            base_url=rift_rag_qa_base_url(),
             timeout_seconds=_get_env_float(
-                "RIFT_RAG_TIMEOUT_SECONDS",
+                ("RIFT_RAG_TIMEOUT_SECONDS", "RIFT_QA_TIMEOUT_SECONDS"),
                 DEFAULT_TIMEOUT_SECONDS,
             ),
             top_k=_get_env_int("RIFT_RAG_TOP_K", DEFAULT_TOP_K),
+            mode=_get_env_mode("RIFT_RAG_MODE", DEFAULT_MODE),
+            trace=_get_env_flag("RIFT_RAG_TRACE", False),
         )
 
 
@@ -44,6 +54,18 @@ class RiftRagResponse:
     answer: str
     warnings: list[str]
     sources: list[RagSource]
+    resolved_cards: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_mentions: list[str] = field(default_factory=list)
+    ambiguous_mentions: list[dict[str, Any]] = field(default_factory=list)
+    exhausted: bool = False
+
+
+def _get_env_value(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
 
 
 def _get_env_int(name: str, default: int) -> int:
@@ -57,8 +79,10 @@ def _get_env_int(name: str, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def _get_env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
+def _get_env_float(names: str | tuple[str, ...], default: float) -> float:
+    if isinstance(names, str):
+        names = (names,)
+    value = _get_env_value(*names)
     if value is None or value == "":
         return default
     try:
@@ -68,10 +92,27 @@ def _get_env_float(name: str, default: float) -> float:
     return parsed if parsed > 0 else default
 
 
+def _get_env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _get_env_mode(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    mode = value.strip().lower()
+    return mode if mode in VALID_MODES else default
+
+
 def build_rift_rag_payload(question: str, settings: RiftRagSettings) -> dict[str, Any]:
     return {
         "query": question,
         "top_k": settings.top_k,
+        "mode": settings.mode,
+        "trace": settings.trace,
     }
 
 
@@ -96,16 +137,30 @@ def parse_rift_rag_response(data: dict[str, Any]) -> RiftRagResponse:
     sources = _parse_sources(data.get("sources"))
 
     if not answer and not sources:
-        raise ValueError(RIFT_RAG_INVALID_RESPONSE)
+        raise ValueError(RIFT_QA_EMPTY_RESULT)
 
     return RiftRagResponse(
         answer=answer,
         warnings=warnings,
         sources=sources,
+        resolved_cards=_parse_resolved_cards(data.get("resolved_cards")),
+        unresolved_mentions=_parse_string_list(
+            _coverage_value(data, "unresolved_mentions")
+        ),
+        ambiguous_mentions=_parse_ambiguous_mentions(
+            _coverage_value(data, "ambiguous_mentions")
+        ),
+        exhausted=_parse_exhausted(data.get("exhausted")),
     )
 
 
 def _parse_warnings(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _parse_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
@@ -121,18 +176,38 @@ def _parse_sources(value: Any) -> list[RagSource]:
         rule_id = str(item.get("rule_id") or "").strip()
         if not rule_id:
             continue
-        topic = str(item.get("topic") or "").strip()
+        topic = item.get("topic")
+        topic = topic.strip() if isinstance(topic, str) else ""
         sources.append(RagSource(rule_id=rule_id, topic=topic))
     return sources
 
 
+def _coverage_value(data: dict[str, Any], key: str) -> Any:
+    coverage = data.get("coverage")
+    if not isinstance(coverage, dict):
+        return None
+    return coverage.get(key)
+
+
+def _parse_resolved_cards(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [
+        item
+        for item in value
+        if isinstance(item, dict) and str(item.get("card_id") or "").strip()
+    ]
+
+
+def _parse_ambiguous_mentions(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _parse_exhausted(value: Any) -> bool:
+    return value if isinstance(value, bool) else False
+
+
 def map_rift_rag_error(exc: Exception) -> str:
-    if isinstance(exc, httpx.TimeoutException):
-        return RIFT_RAG_TIMEOUT
-    if isinstance(exc, httpx.HTTPStatusError):
-        return RIFT_RAG_HTTP_ERROR
-    if isinstance(exc, httpx.RequestError):
-        return RIFT_RAG_NETWORK_ERROR
-    if isinstance(exc, ValueError) and str(exc) == RIFT_RAG_INVALID_RESPONSE:
-        return RIFT_RAG_INVALID_RESPONSE
-    return RIFT_RAG_HTTP_ERROR
+    return map_rag_qa_error(exc)
