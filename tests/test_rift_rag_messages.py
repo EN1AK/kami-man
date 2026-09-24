@@ -30,7 +30,7 @@ def make_response(**overrides) -> RiftRagResponse:
 def test_get_text_mention_aliases_uses_default_when_env_unset(monkeypatch):
     monkeypatch.delenv("RIFT_RAG_TEXT_MENTION_ALIASES", raising=False)
 
-    assert get_text_mention_aliases() == ["问下规则", "问规则", "规则"]
+    assert get_text_mention_aliases() == ["符文规则", "符文裁定"]
 
 
 def test_get_text_mention_aliases_parses_comma_list_and_strips_at():
@@ -40,30 +40,29 @@ def test_get_text_mention_aliases_parses_comma_list_and_strips_at():
 
 
 def test_extract_text_mention_question_accepts_all_supported_aliases():
-    assert extract_text_mention_question("问规则 麦田圈在对方回合能发动吗") == (
+    assert extract_text_mention_question("符文规则 麦田圈在对方回合能发动吗") == (
         True,
         "麦田圈在对方回合能发动吗",
     )
-    assert extract_text_mention_question("问下规则 什么是迅捷") == (True, "什么是迅捷")
-    assert extract_text_mention_question("规则 反制堆叠上限") == (True, "反制堆叠上限")
+    assert extract_text_mention_question("符文裁定 什么是迅捷") == (True, "什么是迅捷")
 
 
 def test_extract_text_mention_question_prefers_longest_alias():
-    matched, question = extract_text_mention_question("问下规则 什么是迅捷")
+    matched, question = extract_text_mention_question("符文裁定 什么是迅捷")
 
     assert matched is True
     assert question == "什么是迅捷"
 
 
 def test_extract_text_mention_question_accepts_at_prefixed_alias():
-    matched, question = extract_text_mention_question("＠问规则 伤害怎么结算")
+    matched, question = extract_text_mention_question("＠符文规则 伤害怎么结算")
 
     assert matched is True
     assert question == "伤害怎么结算"
 
 
 def test_extract_text_mention_question_handles_empty_remainder():
-    matched, question = extract_text_mention_question("问规则")
+    matched, question = extract_text_mention_question("符文裁定")
 
     assert matched is True
     assert question == ""
@@ -77,18 +76,18 @@ def test_extract_text_mention_question_ignores_non_matching_text():
 
 
 def test_is_rift_alias_message_accepts_alias_message():
-    segments = [FakeSegment("text", "问规则 伤害怎么结算")]
+    segments = [FakeSegment("text", "符文规则 伤害怎么结算")]
 
-    assert is_rift_alias_message("问规则 伤害怎么结算", segments, "12345") is True
+    assert is_rift_alias_message("符文规则 伤害怎么结算", segments, "12345") is True
 
 
 def test_is_rift_alias_message_rejects_ygo_bot_mention():
     segments = [
         FakeSegment("at", qq="12345"),
-        FakeSegment("text", " 问规则 伤害怎么结算"),
+        FakeSegment("text", " 符文规则 伤害怎么结算"),
     ]
 
-    assert is_rift_alias_message("问规则 伤害怎么结算", segments, "12345") is False
+    assert is_rift_alias_message("符文规则 伤害怎么结算", segments, "12345") is False
 
 
 def test_is_rift_alias_message_rejects_ygo_text_alias():

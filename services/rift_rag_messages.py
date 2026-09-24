@@ -6,8 +6,8 @@ from services.qa_common import rift_rag_qa_base_url
 from services.rift_rag_api import RiftRagResponse
 from services.ygo_rag_messages import extract_rag_question as extract_ygo_rag_question
 
-# 顺序即匹配优先级：先长后短，保证 "问下规则"/"问规则" 先于 "规则" 命中
-DEFAULT_TEXT_MENTION_ALIASES = ("问下规则", "问规则", "规则")
+# 别名触发：群消息以别名开头即触发（RIFT_RAG_TEXT_MENTION_ALIASES 可覆盖）
+DEFAULT_TEXT_MENTION_ALIASES = ("符文规则", "符文裁定")
 TEXT_MENTION_ALIASES_ENV = "RIFT_RAG_TEXT_MENTION_ALIASES"
 
 
@@ -16,7 +16,10 @@ def get_text_mention_aliases(env_value: str | None = None) -> list[str]:
     if raw_value is None:
         return list(DEFAULT_TEXT_MENTION_ALIASES)
 
-    aliases = [alias.strip().lstrip("@＠") for alias in raw_value.split(",")]
+    aliases = [
+        alias.strip().lstrip("@＠")
+        for alias in raw_value.replace("，", ",").split(",")
+    ]
     return [alias for alias in aliases if alias]
 
 
@@ -134,7 +137,7 @@ def build_rift_rag_nodes(
 
     for source in response.sources:
         rule_lines = [f"规则 {source.rule_id}"]
-        if source.topic:
+        if source.topic and source.topic.strip():
             rule_lines.append(f"主题 {source.topic}")
         nodes.append(make_forward_node("\n".join(rule_lines), **identity))
 

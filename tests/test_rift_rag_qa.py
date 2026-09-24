@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 import nonebot
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message, MessageSegment
 
 nonebot.init()
 
@@ -45,7 +45,7 @@ class FakeBot:
 def make_group_event(text: str, *, with_at: bool = False, card: str = "") -> GroupMessageEvent:
     message = Message(text)
     if with_at:
-        message = Message.segment.at(12345) + message
+        message = MessageSegment.at(12345) + message
     return GroupMessageEvent(
         time=0,
         self_id=12345,
@@ -92,7 +92,7 @@ def test_group_alias_or_trigger_rejects_non_group_event():
 
 
 def test_group_alias_or_trigger_accepts_group_alias_messages():
-    for text in ("问规则 麦田圈在对方回合能发动吗", "规则 什么是迅捷", "问下规则 反制堆叠上限"):
+    for text in ("符文规则 麦田圈在对方回合能发动吗", "符文裁定 什么是迅捷", "符文裁定 反制堆叠上限"):
         event = make_group_event(text)
 
         assert asyncio.run(is_group_rift_alias(FakeBot(), event)) is True
@@ -105,7 +105,7 @@ def test_group_alias_or_trigger_ignores_group_message_without_alias():
 
 
 def test_group_alias_or_trigger_rejects_ygo_bot_mention():
-    event = make_group_event("问规则 伤害怎么结算", with_at=True)
+    event = make_group_event("符文裁定 伤害怎么结算", with_at=True)
 
     assert asyncio.run(is_group_rift_alias(FakeBot(), event)) is False
 
@@ -124,7 +124,7 @@ def test_handler_empty_question_replies_fixed_text(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则")))
 
     assert bot.sent == [EMPTY_QUESTION_TEXT]
     assert calls == []
@@ -137,7 +137,7 @@ def test_handler_queries_service_and_forwards_nodes(monkeypatch):
     query, calls = fake_query(response=response)
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
-    event = make_group_event("问规则 海兽钓钩的放逐怎么处理", card="群名片")
+    event = make_group_event("符文规则 海兽钓钩的放逐怎么处理", card="群名片")
 
     asyncio.run(handle_rift_rag_qa(bot, event))
 
@@ -164,7 +164,7 @@ def test_handler_forwards_exhausted_response_normally(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 什么是迅捷")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
 
     assert len(bot.forward_calls) == 1
     question_node = bot.forward_calls[0][1]["messages"][0]["data"]["content"]
@@ -176,7 +176,7 @@ def test_handler_maps_connection_failure(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 什么是迅捷")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
 
     assert bot.sent == [RIFT_QA_CONNECT_ERROR]
 
@@ -186,7 +186,7 @@ def test_handler_maps_timeout(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 什么是迅捷")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
 
     assert bot.sent == [RIFT_QA_TIMEOUT]
 
@@ -202,7 +202,7 @@ def test_handler_maps_internal_error(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 什么是迅捷")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
 
     assert bot.sent == [RIFT_QA_INTERNAL_ERROR]
 
@@ -212,7 +212,7 @@ def test_handler_maps_empty_result(monkeypatch):
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot()
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 什么是迅捷")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
 
     assert bot.sent == [RIFT_QA_EMPTY_RESULT]
 
@@ -222,7 +222,7 @@ def test_handler_falls_back_to_plain_messages_only_on_forward_failure(monkeypatc
     monkeypatch.setattr(rift_qa, "query_rift_rag", query)
     bot = FakeBot(forward_fails=True)
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("问规则 伤害怎么结算")))
+    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文裁定 伤害怎么结算")))
 
     assert bot.sent[0] == FORWARD_FALLBACK_NOTICE
     forwarded = bot.forward_calls[0][1]["messages"]
