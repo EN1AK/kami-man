@@ -153,9 +153,7 @@ def test_handler_queries_service_and_forwards_nodes(monkeypatch):
     )
     assert nodes[0]["data"]["name"] == "群名片"
     assert nodes[0]["data"]["uin"] == "111"
-    assert nodes[-1]["data"]["content"].endswith(
-        "回答生成自 http://127.0.0.1:7862"
-    )
+    assert nodes[-1]["data"]["content"] == "结论 [R-CR-465.2]"
 
 
 def test_handler_forwards_exhausted_response_normally(monkeypatch):

@@ -116,16 +116,13 @@ def test_build_rift_rag_nodes_builds_question_rules_and_answer_in_order():
         response,
         sender_name="tester",
         sender_user_id=111,
-        base_url="http://127.0.0.1:7862",
     )
 
     assert [node["type"] for node in nodes] == ["node"] * 4
     assert nodes[0]["data"]["content"] == "问题：伤害怎么结算"
     assert nodes[1]["data"]["content"] == "规则 R-CR-465.2\n主题 465.2 Step 2"
     assert nodes[2]["data"]["content"] == "规则 R-CR-814.1.d.1"
-    assert nodes[3]["data"]["content"] == (
-        "结论 [R-CR-465.2]\n\n回答生成自 http://127.0.0.1:7862"
-    )
+    assert nodes[3]["data"]["content"] == "结论 [R-CR-465.2]"
     for node in nodes:
         assert node["data"]["name"] == "tester"
         assert node["data"]["uin"] == "111"
@@ -160,7 +157,6 @@ def test_build_rift_rag_nodes_question_includes_coverage_lines():
     nodes = build_rift_rag_nodes(
         "海兽钓钩的放逐怎么处理",
         response,
-        base_url="http://127.0.0.1:7862",
     )
 
     assert nodes[0]["data"]["content"] == (
@@ -176,7 +172,7 @@ def test_build_rift_rag_nodes_question_includes_coverage_lines():
 def test_build_rift_rag_nodes_omits_coverage_lines_when_fields_empty():
     response = make_response()
 
-    nodes = build_rift_rag_nodes("问题", response, base_url="http://127.0.0.1:7862")
+    nodes = build_rift_rag_nodes("问题", response)
 
     assert nodes[0]["data"]["content"] == "问题：问题"
 
@@ -184,7 +180,7 @@ def test_build_rift_rag_nodes_omits_coverage_lines_when_fields_empty():
 def test_build_rift_rag_nodes_appends_warnings_to_question_node():
     response = make_response(warnings=["向量召回失败，已退回关键词召回"])
 
-    nodes = build_rift_rag_nodes("问题", response, base_url="http://127.0.0.1:7862")
+    nodes = build_rift_rag_nodes("问题", response)
 
     assert nodes[0]["data"]["content"] == (
         "问题：问题\n警告：\n向量召回失败，已退回关键词召回"
@@ -199,7 +195,7 @@ def test_build_rift_rag_nodes_omits_topic_line_for_unusable_topic():
         ]
     )
 
-    nodes = build_rift_rag_nodes("问题", response, base_url="http://127.0.0.1:7862")
+    nodes = build_rift_rag_nodes("问题", response)
 
     assert nodes[1]["data"]["content"] == "规则 R-CR-1"
     assert nodes[2]["data"]["content"] == "规则 R-CR-2"
@@ -208,7 +204,7 @@ def test_build_rift_rag_nodes_omits_topic_line_for_unusable_topic():
 def test_build_rift_rag_nodes_keeps_empty_question_and_drops_empty_answer():
     response = make_response(answer="")
 
-    nodes = build_rift_rag_nodes("", response, base_url="http://127.0.0.1:7862")
+    nodes = build_rift_rag_nodes("", response)
 
     assert [node["data"]["content"] for node in nodes] == [
         "问题：",
@@ -221,35 +217,16 @@ def test_build_rift_rag_nodes_tolerates_partial_sender_identity():
         "问题",
         make_response(),
         sender_name="tester",
-        base_url="http://127.0.0.1:7862",
     )
     uin_only = build_rift_rag_nodes(
         "问题",
         make_response(),
         sender_user_id=111,
-        base_url="http://127.0.0.1:7862",
     )
     no_identity = build_rift_rag_nodes(
-        "问题", make_response(), base_url="http://127.0.0.1:7862"
+        "问题", make_response()
     )
 
     assert name_only[0]["data"] == {"content": "问题：问题", "name": "tester"}
     assert uin_only[0]["data"] == {"content": "问题：问题", "uin": "111"}
     assert no_identity[0]["data"] == {"content": "问题：问题"}
-
-
-def test_build_rift_rag_nodes_footer_uses_configured_base_url(monkeypatch):
-    monkeypatch.delenv("RIFT_RAG_BASE_URL", raising=False)
-    monkeypatch.delenv("RIFT_QA_BASE_URL", raising=False)
-    monkeypatch.setenv("RIFT_RAG_BASE_URL", "http://10.0.0.2:7862")
-
-    nodes = build_rift_rag_nodes("问题", make_response())
-
-    assert nodes[-1]["data"]["content"].endswith("回答生成自 http://10.0.0.2:7862")
-
-    monkeypatch.delenv("RIFT_RAG_BASE_URL")
-    nodes = build_rift_rag_nodes("问题", make_response())
-
-    assert nodes[-1]["data"]["content"].endswith(
-        "回答生成自 http://127.0.0.1:7862"
-    )

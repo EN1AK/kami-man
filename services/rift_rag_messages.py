@@ -2,7 +2,6 @@
 import os
 from typing import Any
 
-from services.qa_common import rift_rag_qa_base_url
 from services.rift_rag_api import RiftRagResponse
 from services.ygo_rag_messages import extract_rag_question as extract_ygo_rag_question
 
@@ -121,10 +120,8 @@ def build_rift_rag_nodes(
     *,
     sender_name: str | None = None,
     sender_user_id: Any = None,
-    base_url: str | None = None,
 ) -> list[dict]:
-    """问题（含识别/覆盖度行）→ 引用规则 → 回答（含来源页脚）的合并转发节点。"""
-    source_url = (base_url or rift_rag_qa_base_url()).rstrip("/")
+    """问题（含识别/覆盖度行）→ 引用规则 → 回答的合并转发节点。"""
     identity = {"name": sender_name or None, "uin": sender_user_id or None}
     nodes: list[dict] = []
 
@@ -142,7 +139,6 @@ def build_rift_rag_nodes(
         nodes.append(make_forward_node("\n".join(rule_lines), **identity))
 
     if response.answer:
-        answer_text = f"{response.answer}\n\n回答生成自 {source_url}"
-        nodes.append(make_forward_node(answer_text, **identity))
+        nodes.append(make_forward_node(response.answer, **identity))
 
     return nodes
