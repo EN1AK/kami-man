@@ -38,8 +38,11 @@ This document records the production relationship between `kami-man` and
     `plugins/rift_rag_qa.py`).
 - `kami-onebot-watchdog.timer`
   - Runs every 2 minutes.
-  - Restarts the `snowluma` OneBot container if `kami-man.service` is active
-    but no established WebSocket connection exists on port `18080`.
+  - If the OneBot WebSocket on port `18080` is disconnected, recognizes QQ's
+    saved-account login window and clicks its login button.
+  - If QQ's main window is visible but the WebSocket remains disconnected,
+    restarts `snowluma` with a 5-minute restart cooldown. An unrecognized
+    login window is left untouched for manual attention.
 
 ## OneBot
 

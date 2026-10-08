@@ -5,6 +5,9 @@ BOT_PORT="${BOT_PORT:-18080}"
 BOT_SERVICE="${BOT_SERVICE:-kami-man.service}"
 ONEBOT_CONTAINER="${ONEBOT_CONTAINER:-snowluma}"
 LOGGER_TAG="${LOGGER_TAG:-kami-onebot-watchdog}"
+QQ_LOGIN_HELPER="${QQ_LOGIN_HELPER:-/home/ubuntu/qqbot/kami-man/deploy/qq_login_recover.py}"
+RESTART_COOLDOWN_SECONDS="${RESTART_COOLDOWN_SECONDS:-300}"
+RESTART_STAMP="${RESTART_STAMP:-/run/kami-onebot-watchdog-last-restart}"
 
 log() {
   logger -t "$LOGGER_TAG" "$*"
@@ -32,5 +35,29 @@ if ss -Htn | awk -v port=":$BOT_PORT" '$1 == "ESTAB" && (index($4, port) || inde
   exit 0
 fi
 
+if [ -r "$QQ_LOGIN_HELPER" ]; then
+  if recovery_output="$(docker exec -i "$ONEBOT_CONTAINER" python3 - < "$QQ_LOGIN_HELPER" 2>&1)"; then
+    log "$recovery_output; waiting for OneBot to reconnect"
+    exit 0
+  else
+    recovery_status=$?
+    log "$recovery_output"
+    if [ "$recovery_status" -eq 4 ]; then
+      # A login screen is present, but clicking without recognizing the button is unsafe.
+      exit 0
+    fi
+  fi
+else
+  log "QQ login helper not found at $QQ_LOGIN_HELPER"
+fi
+
+now="$(date +%s)"
+last_restart="$(cat "$RESTART_STAMP" 2>/dev/null || echo 0)"
+if [[ "$last_restart" =~ ^[0-9]+$ ]] && (( now - last_restart < RESTART_COOLDOWN_SECONDS )); then
+  log "no established OneBot websocket connection on port $BOT_PORT; restart cooldown active"
+  exit 0
+fi
+
 log "no established OneBot websocket connection on port $BOT_PORT; restarting $ONEBOT_CONTAINER"
+printf '%s\n' "$now" > "$RESTART_STAMP"
 docker restart "$ONEBOT_CONTAINER" >/dev/null
