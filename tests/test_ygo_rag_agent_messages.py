@@ -75,3 +75,11 @@ def test_build_agent_messages_falls_back_to_answer_when_no_tool_details():
     texts = build_rag_agent_message_texts("原问题", response, fallback_chunk_size=3)
 
     assert texts == ["问题：原问题\n回答：abcdef"]
+
+
+def test_rift_catalogue_detail_includes_count_stats_and_effect():
+    from services.ygo_rag_agent_messages import _extract_tool_fallback_text
+    from services.ygo_rag_agent_api import AgentToolBlock
+    block=AgentToolBlock(tool="rift_search_cards",ok=True,summary="完成",result={"answer":"共找到 12 种，本页展示 1-10。","search_mode":"semantic","results":[{"card_key":"OGN-001","title":"守护者","color_cn":"红色","type_cn":"单位","might":7,"energy":3,"text_cn":"保护其他单位"}]})
+    text=_extract_tool_fallback_text(block)
+    assert all(x in text for x in ["12","战力 7","能量 3","红色","保护其他单位","OGN-001"])

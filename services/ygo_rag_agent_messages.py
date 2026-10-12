@@ -46,7 +46,7 @@ def _build_tool_detail_messages(blocks: list[AgentToolBlock]) -> list[str]:
 
         text = _extract_tool_fallback_text(block)
         if text:
-            messages.append(text)
+            messages.extend(chunk_text(text))
     return messages
 
 
@@ -85,7 +85,15 @@ def _extract_tool_fallback_text(block: AgentToolBlock) -> str:
         if result.get("exhausted"):lines.append("已达检索上限，结论基于部分证据。")
         return "\n".join(lines)
     if block.tool == "rift_search_cards":
-        return "\n".join("rb "+str(card.get("card_key",""))+" "+str(card.get("title") or card.get("name_cn") or card.get("name_en")) for card in result.get("results",[])) or "未找到符文卡片。"
+        lines=[str(result.get("answer") or "符文查卡结果")]
+        for card in result.get("results",[]):
+            title=str(card.get("title") or card.get("name_cn") or card.get("name_en") or "")
+            stats="；".join(f"{label} {card.get(key)}" for key,label in [("color_cn","颜色"),("type_cn","类型"),("energy","能量"),("rune_power","符文之力"),("might","战力"),("might_bonus","战力加成")] if card.get(key) is not None)
+            lines.append(f"rb {card.get('card_key','')} {title}\n{stats}")
+            if result.get("search_mode")=="semantic":
+                text=str(card.get("errata_cn") or card.get("text_cn") or card.get("text_en") or "")
+                lines.append("效果："+text[:500]+("…" if len(text)>500 else ""))
+        return "\n".join(lines) if result.get("results") else str(result.get("answer") or "未找到符文卡片。")
     if block.tool == "adjudicate":
         natural_answer = str(result.get("natural_answer") or "").strip()
         if natural_answer:
