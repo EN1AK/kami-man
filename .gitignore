@@ -29,3 +29,6 @@ data/riftbound/
 
 # Agent daily usage (runtime only)
 data/agent_usage.db*
+
+# MyCard recordings, decks, index and login credentials (server runtime only)
+data/mycard_archive/
