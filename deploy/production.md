@@ -385,3 +385,13 @@ evidence and card images. `rift-rag.service` on 7862 is disabled after verificat
 The earlier two-backend topology in this file is historical. Current settings,
 module paths, request budgets and rollback: `../ygo-rag/docs/unified-agent.md`.
 The server is the authoritative workspace for this migration.
+
+
+## Agent daily quota
+
+Unified QQ Agent requests share a persistent per-QQ daily limit of 30 across groups and aliases.
+The date boundary is Asia/Shanghai midnight. NoneBot superusers are exempt, but usage is recorded.
+SQLite `data/agent_usage.db` is runtime-only and excluded from Git; keep it across restarts/deploys.
+Atomic reservations include in-flight requests, and failed upstream calls are refunded to the reservation day.
+Blank/oversized requests, usage commands and exact `清空对话` are free. Standalone card commands are unchanged.
+`@神人 用量` shows personal use; `@神人 用量统计` is restricted to superusers (today totals and top 20).

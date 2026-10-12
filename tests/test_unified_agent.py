@@ -57,3 +57,54 @@ def test_translation_entry_uses_same_dispatcher(monkeypatch):
     bot=FakeBot();event=make_group_event("@神人 翻译 hello")
     asyncio.run(handle_ygo_rag_translate(bot,event))
     assert handler.await_count==1 and "hello" in handler.call_args.args[2]
+
+
+@pytest.fixture(autouse=True)
+def isolated_usage(monkeypatch,tmp_path):
+    from services.agent_usage import UsageStore
+    monkeypatch.setattr(unified,"usage_store",UsageStore(tmp_path/"usage.db"))
+    monkeypatch.setattr(unified,"is_exempt",lambda uid:str(uid)=="2954452539")
+
+
+def test_quota_blocks_31st_across_groups(monkeypatch):
+    query=AsyncMock(return_value=response())
+    monkeypatch.setattr(unified,"query_ygo_rag_agent",query)
+    bot=FakeBot();event=make_group_event("你好")
+    async def run():
+        for i in range(31):
+            event.group_id=67890+i
+            await unified.handle_question(bot,event,"你好")
+    asyncio.run(run())
+    assert query.await_count==30
+    assert "额度已用完" in str(bot.sent[-1])
+    assert unified.usage_store.personal(111)[1]==30
+
+
+def test_owner_is_unlimited_and_recorded(monkeypatch):
+    query=AsyncMock(return_value=response());monkeypatch.setattr(unified,"query_ygo_rag_agent",query)
+    bot=FakeBot();event=make_group_event("你好");event.user_id=2954452539
+    async def run():
+        for _ in range(31):await unified.handle_question(bot,event,"你好")
+    asyncio.run(run())
+    assert query.await_count==31
+    assert unified.usage_store.personal(event.user_id)[1]==31
+
+
+def test_failed_request_refunds_quota(monkeypatch):
+    monkeypatch.setattr(unified,"query_ygo_rag_agent",AsyncMock(side_effect=httpx.ConnectError("down")))
+    asyncio.run(unified.handle_question(FakeBot(),make_group_event("你好"),"你好"))
+    assert unified.usage_store.personal(111)[1:]==(0,1)
+
+
+def test_usage_commands_and_clear_are_free_and_stats_are_private(monkeypatch):
+    query=AsyncMock(return_value=response());monkeypatch.setattr(unified,"query_ygo_rag_agent",query)
+    bot=FakeBot();event=make_group_event("消息")
+    async def run():
+        for text in ["用量","用量统计","清空对话",""]:await unified.handle_question(bot,event,text)
+        event.user_id=2954452539
+        await unified.handle_question(bot,event,"用量统计")
+    asyncio.run(run())
+    assert query.await_count==1
+    assert unified.usage_store.personal(111)[1]==0
+    assert any("仅限管理员" in str(x) for x in bot.sent)
+    assert "使用人数" in str(bot.sent[-1])

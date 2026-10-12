@@ -26,3 +26,6 @@ assets/help.png
 
 data/riftbound_images/
 data/riftbound/
+
+# Agent daily usage (runtime only)
+data/agent_usage.db*
