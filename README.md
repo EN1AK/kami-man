@@ -8,6 +8,8 @@
 
 - `ck 卡名` / `查卡 卡名`：查询单张游戏王卡片信息，包含卡图。
 - `卡图 卡名`：只查询卡图。
+- `卡价 卡名`：查询集换社 OCG 版本，回复罕贵名称或编号查看价格；选择有效期 3 分钟，回复 `取消` 退出。
+- `卡价 原石之皇脉 UTR`：直接查询该罕贵的各卡包版本，分别展示人民币最低价、集换价及日期。
 - `pl 卡名` / `批量查卡 卡名`：批量查询卡片，使用合并转发返回。
 - `裁定 卡名`：查询卡片裁定，每页 10 条。
 - `裁定 卡名 2` / `裁定 卡名 p2` / `裁定 卡名 第2页`：查看后续裁定分页。
@@ -18,6 +20,7 @@
 
 - 卡片与裁定：`https://ygocdb.com/api/v0/`
 - 卡图 CDN：见 `services/ygo_api.py`
+- 集换社价格：本机 Windows 微信登录会话，经私有桥接服务查询；安装、自动恢复及服务器配置见 [部署说明](deploy/production.md#jihuanshe-price-lookup-on-windows)。
 - RAG Agent：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/agent`
 - LLM 翻译：同机部署的 `ygo-rag` HTTP 服务，默认 `http://127.0.0.1:7860/api/translate`
 
@@ -55,6 +58,7 @@
 .
 ├── bot.py                    # NoneBot 入口
 ├── plugins/
+│   ├── card_price.py         # 集换社查价及罕贵选择
 │   ├── admin.py              # 帮助图、代码更新与服务重启
 │   ├── mycard.py             # MyCard 查询和订阅
 │   ├── riftbound_card.py     # Riftbound 查卡
@@ -62,6 +66,7 @@
 │   ├── ygo_rag_translate.py  # ygo-rag LLM 群聊翻译
 │   └── ygo_card.py           # 游戏王查卡和裁定
 ├── services/
+│   ├── jihuanshe_api.py      # 私有查价桥接客户端
 │   ├── mycard_api.py         # MyCard API 与本地 JSON 存储
 │   ├── onebot_forward.py     # OneBot 合并转发发送 helper
 │   ├── riftbound_api.py      # Riftbound 本地卡库查询

@@ -395,3 +395,97 @@ SQLite `data/agent_usage.db` is runtime-only and excluded from Git; keep it acro
 Atomic reservations include in-flight requests, and failed upstream calls are refunded to the reservation day.
 Blank/oversized requests, usage commands and exact `清空对话` are free. Standalone card commands are unchanged.
 `@神人 用量` shows personal use; `@神人 用量统计` is restricted to superusers (today totals and top 20).
+
+
+## Jihuanshe price lookup on Windows
+
+The QQ commands `卡价 卡名` and `卡价 卡名 UTR` use the logged-in Windows
+WeChat Jihuanshe mini-program, without a rooted Android phone. Version selection
+expires after 180 seconds and is scoped to bot/chat/user. Results keep pack
+numbers separate and distinguish current minimum listing price from the latest
+Jihuanshe market-history point. Both are CNY; listings may include different
+languages. This integration covers Jihuanshe OCG, not Cardrush or PTCG.
+
+The local bridge uses [WMPFDebugger](https://github.com/evi0s/WMPFDebugger).
+Verified on WeChat 4.1.15.13 / WMPF 25715, Node 22+ and PowerShell 7. The debugger
+needs offsets for the installed WMPF version; recheck compatibility after WeChat
+updates. Keep upstream `yarn.lock`. `setup.ps1` installs the locked dependencies,
+binds both debugger sockets to loopback, exits on Frida session detachment,
+uses IPv4 for the hook and enables the
+observed desktop-shortcut launch scene 1023. Scene 1000 remains excluded.
+
+On the Windows account that runs WeChat, log into Jihuanshe and use its menu to
+create a desktop shortcut. From this repository:
+
+```powershell
+./scripts/jihuanshe_windows/setup.ps1
+./scripts/jihuanshe_windows/start.ps1 -AutoStart
+./scripts/jihuanshe_windows/start.ps1
+./scripts/jihuanshe_windows/start.ps1 -Status
+```
+
+Runtime dependencies, private `config.json` and logs stay under
+`.venv/jhs-windows-poc/`, excluded from Git. Setup preserves the existing bridge
+token and accepts `-DebuggerDir`, `-ShortcutPath`, `-SshHost` and `-AppId`.
+The default target app ID is `wx64479c83c7630409`, verified in the logged-in
+Jihuanshe session. The bridge only offers version/price queries, never arbitrary
+JavaScript execution or WeChat login tokens.
+
+The Windows task `KamiMan-Jihuanshe-Bridge` starts a hidden supervisor at the
+current user's logon, with normal user privileges. The supervisor restarts a
+failed bridge with a 5–60 second backoff and removes only its own debugger/tunnel
+children. The bridge serializes queries, checks the session every 30 seconds,
+restarts failed debugger/tunnel processes and reopens the mini-program through
+its desktop shortcut when needed. It closes only the Jihuanshe mini-program
+window during recovery. This can bring that window to the foreground.
+
+Windows must remain online and awake with the user signed in and WeChat logged
+in. A lost WeChat/Jihuanshe login still needs manual login; the bridge does not
+enter passwords, bypass login or unlock Windows. Sleep/lock and overnight
+behavior have not been verified. A request during recovery may need retrying.
+
+Only `127.0.0.1` listens on Windows ports 8791 (authenticated HTTP), 9421 and
+62000 (debugger). Native Windows OpenSSH forwards the server's loopback port:
+
+```text
+-R 127.0.0.1:8791:127.0.0.1:8791 ubuntu@150.109.237.67
+```
+
+The tunnel uses batch authentication, connection timeout, SSH keepalives and
+`ExitOnForwardFailure`; Windows SSH key access must already work. No public
+firewall port is needed. The production bot receives these settings from the
+root-owned, mode-600 systemd drop-in
+`/etc/systemd/system/kami-man.service.d/jihuanshe.conf`:
+
+```ini
+[Service]
+Environment="JIHUANSHE_BRIDGE_URL=http://127.0.0.1:8791"
+Environment="JIHUANSHE_BRIDGE_TOKEN=<same token as Windows private config>"
+Environment="JIHUANSHE_BRIDGE_TIMEOUT=90"
+```
+
+Transfer the shared bridge token privately; do not commit it, print it in logs
+or place it in a public URL. After changing the drop-in, run
+`sudo systemctl daemon-reload` and `sudo systemctl restart kami-man.service`.
+Check service status, the reverse listener on `127.0.0.1:8791`, and a real QQ
+query. Logs under `.venv/jhs-windows-poc/service.*.log` record lifecycle events
+without request bodies or session tokens. They are replaced on bridge restart.
+
+Verified on 2026-10-12: QQ delivered real prices; killing the owned SSH tunnel
+recreated the reverse connection; killing the debugger restored the shortcut
+session and price requests. The supervisor also recovers a killed bridge and
+cleans up its orphaned helper processes. Closing the Jihuanshe window also
+reopened the mini-program and restored real prices. Login-triggered startup was registered
+and run through Task Scheduler; a full Windows reboot was not tested.
+
+To stop or disable logon startup:
+
+```powershell
+./scripts/jihuanshe_windows/start.ps1 -Stop
+./scripts/jihuanshe_windows/start.ps1 -RemoveAutoStart
+```
+
+`-Stop` requests graceful shutdown, preserving unrelated WeChat/SSH processes.
+Start again with `start.ps1`. To remove production price configuration, remove
+only the `jihuanshe.conf` drop-in, reload systemd and restart the bot; preserve
+other drop-ins. Commands then report that price lookup is not configured.

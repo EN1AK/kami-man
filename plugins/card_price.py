@@ -36,7 +36,11 @@ def prune_selections() -> None:
 
 async def awaiting_selection(event: MessageEvent) -> bool:
     prune_selections()
-    return session_key(event) in pending and bool(re.fullmatch(r'取消|\d{1,2}|[A-Za-z]{1,8}', event.get_plaintext().strip()))
+    selection = pending.get(session_key(event))
+    if not selection:
+        return False
+    text = event.get_plaintext().strip()
+    return text == '取消' or bool(re.fullmatch(r'\d{1,2}', text)) or any(label == text.upper() for label, _ in selection.groups)
 
 
 price_selection = on_message(rule=Rule(awaiting_selection), priority=6, block=True)

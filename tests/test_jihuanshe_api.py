@@ -79,3 +79,16 @@ def test_rarity_number_and_name_select_same_versions():
     assert api.select_rarity(groups, '1') == api.select_rarity(groups, 'sr')
     assert api.select_rarity(groups, '0') is None
     assert api.select_rarity(groups, '3') is None
+
+
+def test_rarity_prompt_does_not_capture_other_commands():
+    class Event:
+        self_id = 123
+        def __init__(self, text): self.text = text
+        def get_session_id(self): return 'private_5'
+        def get_plaintext(self): return self.text
+    plugin.pending[plugin.session_key(Event(''))] = plugin.Selection('卡', [('SR', []), ('UTR', [])], float('inf'))
+    for text in ('help', '历史', 'ck 青眼白龙', 'hello', 'UR'):
+        assert not asyncio.run(plugin.awaiting_selection(Event(text)))
+    for text in ('sr', 'UTR', '1', '取消'):
+        assert asyncio.run(plugin.awaiting_selection(Event(text)))
