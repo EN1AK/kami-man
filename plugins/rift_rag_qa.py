@@ -38,25 +38,5 @@ async def handle_rift_rag_qa(bot: Bot, event: MessageEvent):
     if not matched:
         return
 
-    if not question:
-        await bot.send(event, EMPTY_QUESTION_TEXT)
-        return
-
-    try:
-        response = await query_rift_rag(question)
-    except Exception as exc:
-        await bot.send(event, map_rift_rag_error(exc))
-        return
-
-    sender_name = None
-    if event.sender is not None:
-        sender_name = event.sender.card or event.sender.nickname
-
-    nodes = build_rift_rag_nodes(
-        question,
-        response,
-        sender_name=sender_name,
-        sender_user_id=event.user_id,
-    )
-
-    await send_group_forward_nodes(bot, event, nodes, FORWARD_FALLBACK_NOTICE)
+    from services.unified_agent import handle_question
+    await handle_question(bot,event,"符文战场规则："+question if question else "")

@@ -261,3 +261,12 @@ systemctl status kami-man --no-pager -l
 - `assets/help.png` 是生成文件，不应随代码提交。
 - 合并转发可能被 NapCat 或 QQ 风控拒绝；游戏王查卡已在合并转发失败时回退为普通消息发送。
 - 裁定文本可能很长，目前按每页 10 条分页展示。
+
+
+### Unified chat and game Agent
+
+`@神人` now accepts ordinary chat, YGO and Riftbound card/ruling questions,
+and translation. Follow-ups share history only within the same group/user.
+`@神人 清空对话` resets it. The explicit translation and Rift aliases delegate
+to the same backend at 7861. Deployment is documented in the sibling
+`ygo-rag/docs/unified-agent.md`; the separate 7862 service is retired.

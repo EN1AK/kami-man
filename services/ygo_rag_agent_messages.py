@@ -75,6 +75,17 @@ def _extract_nested_structured_texts(result: dict[str, Any]) -> list[str]:
 
 def _extract_tool_fallback_text(block: AgentToolBlock) -> str:
     result = block.result
+    if block.tool == "rift_rules":
+        lines=[str(result.get("answer") or "")]
+        sources=result.get("sources",[])
+        if sources:lines.append("依据：\n"+"\n".join(str(source.get("rule_id",""))+" "+str(source.get("topic","")) for source in sources))
+        coverage=result.get("coverage",{})
+        if coverage.get("unresolved_mentions"):lines.append("未识别卡名："+"、".join(coverage["unresolved_mentions"]))
+        if coverage.get("ambiguous_mentions"):lines.append("卡名存在歧义："+str(coverage["ambiguous_mentions"]))
+        if result.get("exhausted"):lines.append("已达检索上限，结论基于部分证据。")
+        return "\n".join(lines)
+    if block.tool == "rift_search_cards":
+        return "\n".join("rb "+str(card.get("card_key",""))+" "+str(card.get("title") or card.get("name_cn") or card.get("name_en")) for card in result.get("results",[])) or "未找到符文卡片。"
     if block.tool == "adjudicate":
         natural_answer = str(result.get("natural_answer") or "").strip()
         if natural_answer:

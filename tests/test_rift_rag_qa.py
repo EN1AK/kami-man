@@ -119,114 +119,21 @@ def test_handler_gives_private_or_non_group_no_reply():
     assert bot.forward_calls == []
 
 
-def test_handler_empty_question_replies_fixed_text(monkeypatch):
-    query, calls = fake_query()
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
+def test_alias_handler_delegates_to_unified_agent(monkeypatch):
+    import services.unified_agent as unified
+    from unittest.mock import AsyncMock
+    handler=AsyncMock()
+    monkeypatch.setattr(unified,"handle_question",handler)
+    bot=FakeBot()
+    event=make_group_event("符文规则 海兽钓钩的放逐怎么处理")
+    asyncio.run(handle_rift_rag_qa(bot,event))
+    handler.assert_awaited_once_with(bot,event,"符文战场规则：海兽钓钩的放逐怎么处理")
 
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则")))
-
-    assert bot.sent == [EMPTY_QUESTION_TEXT]
-    assert calls == []
-
-
-def test_handler_queries_service_and_forwards_nodes(monkeypatch):
-    response = make_response(
-        resolved_cards=[{"card_id": "OGN-242", "name_cn": "海兽钓钩"}],
-    )
-    query, calls = fake_query(response=response)
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-    event = make_group_event("符文规则 海兽钓钩的放逐怎么处理", card="群名片")
-
-    asyncio.run(handle_rift_rag_qa(bot, event))
-
-    assert calls == ["海兽钓钩的放逐怎么处理"]
-    assert bot.sent == []
-    assert len(bot.forward_calls) == 1
-    api, kwargs = bot.forward_calls[0]
-    assert api == "send_group_forward_msg"
-    assert kwargs["group_id"] == 67890
-    nodes = kwargs["messages"]
-    assert nodes[0]["data"]["content"].startswith(
-        "问题：海兽钓钩的放逐怎么处理\n识别卡牌：海兽钓钩（OGN-242）"
-    )
-    assert nodes[0]["data"]["name"] == "群名片"
-    assert nodes[0]["data"]["uin"] == "111"
-    assert nodes[-1]["data"]["content"] == "结论 [R-CR-465.2]"
-
-
-def test_handler_forwards_exhausted_response_normally(monkeypatch):
-    response = make_response(answer="部分证据下的结论", exhausted=True)
-    query, _ = fake_query(response=response)
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
-
-    assert len(bot.forward_calls) == 1
-    question_node = bot.forward_calls[0][1]["messages"][0]["data"]["content"]
-    assert "已达检索步数上限，答案基于部分证据" in question_node
-
-
-def test_handler_maps_connection_failure(monkeypatch):
-    query, _ = fake_query(error=httpx.ConnectError("down"))
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
-
-    assert bot.sent == [RIFT_QA_CONNECT_ERROR]
-
-
-def test_handler_maps_timeout(monkeypatch):
-    query, _ = fake_query(error=httpx.TimeoutException("slow"))
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
-
-    assert bot.sent == [RIFT_QA_TIMEOUT]
-
-
-def test_handler_maps_internal_error(monkeypatch):
-    query, _ = fake_query(
-        error=httpx.HTTPStatusError(
-            "bad",
-            request=httpx.Request("POST", "http://x"),
-            response=httpx.Response(500),
-        )
-    )
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
-
-    assert bot.sent == [RIFT_QA_INTERNAL_ERROR]
-
-
-def test_handler_maps_empty_result(monkeypatch):
-    query, _ = fake_query(error=ValueError(RIFT_QA_EMPTY_RESULT))
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot()
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文规则 什么是迅捷")))
-
-    assert bot.sent == [RIFT_QA_EMPTY_RESULT]
-
-
-def test_handler_falls_back_to_plain_messages_only_on_forward_failure(monkeypatch):
-    query, _ = fake_query()
-    monkeypatch.setattr(rift_qa, "query_rift_rag", query)
-    bot = FakeBot(forward_fails=True)
-
-    asyncio.run(handle_rift_rag_qa(bot, make_group_event("符文裁定 伤害怎么结算")))
-
-    assert bot.sent[0] == FORWARD_FALLBACK_NOTICE
-    forwarded = bot.forward_calls[0][1]["messages"]
-    assert bot.sent[1:] == [node["data"]["content"] for node in forwarded]
-
-
-def test_matcher_runs_below_commands_and_does_not_block():
-    assert rift_rag_qa.priority > 1
-    assert rift_rag_qa.block is False
+def test_empty_alias_delegates_empty_request(monkeypatch):
+    import services.unified_agent as unified
+    from unittest.mock import AsyncMock
+    handler=AsyncMock()
+    monkeypatch.setattr(unified,"handle_question",handler)
+    bot=FakeBot();event=make_group_event("符文裁定")
+    asyncio.run(handle_rift_rag_qa(bot,event))
+    handler.assert_awaited_once_with(bot,event,"")

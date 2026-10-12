@@ -94,19 +94,5 @@ async def handle_rag_qa(bot: Bot, event: MessageEvent):
     if is_translation_command:
         return
 
-    if not question:
-        await bot.send(event, "请在 @Bot 后输入要查询的游戏王问题。")
-        return
-
-    try:
-        response = await query_ygo_rag_agent(question)
-    except Exception as exc:
-        await bot.send(event, map_agent_error(exc))
-        return
-
-    texts = build_rag_agent_message_texts(question, response)
-    if not texts:
-        await bot.send(event, "RAG 服务没有返回可发送的回答。")
-        return
-
-    await send_group_forward_msg(bot, event, texts)
+    from services.unified_agent import handle_question
+    await handle_question(bot,event,question)

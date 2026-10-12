@@ -374,3 +374,14 @@ the broad `符文` alias is not registered, preserving rules Q&A triggers.
   size changes. Supplementary translations and errata are labeled separately.
 - Verify with `DRIVER=~none venv/bin/python -m pytest tests -q`, then restart the
   bot and check its service logs. QQ delivery requires a real user command.
+
+
+## Unified Agent migration (2026-10-12)
+
+`ygo-rag.service` on 7861 now owns chat, both game domains and translation.
+Mentions and explicit Rift/translation aliases share `POST /api/agent`, scoped
+by bot/group/user; chat is a plain reply, professional responses preserve
+evidence and card images. `rift-rag.service` on 7862 is disabled after verification.
+The earlier two-backend topology in this file is historical. Current settings,
+module paths, request budgets and rollback: `../ygo-rag/docs/unified-agent.md`.
+The server is the authoritative workspace for this migration.

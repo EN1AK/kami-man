@@ -46,25 +46,5 @@ async def handle_ygo_rag_translate(bot: Bot, event: MessageEvent):
     if not mentioned or not is_command:
         return
 
-    if not text:
-        await bot.send(event, "\u8bf7\u5728 @Bot \u540e\u4f7f\u7528\u201c\u7ffb\u8bd1\u201d\u547d\u4ee4\u5e76\u8f93\u5165\u8981\u7ffb\u8bd1\u7684\u6587\u672c\u3002")
-        return
-
-    try:
-        response = await translate_with_ygo_rag(text)
-    except Exception as exc:
-        await bot.send(event, map_translation_error(exc))
-        return
-
-    texts = build_translation_message_texts(text, response)
-    if not texts:
-        await bot.send(event, "\u7ffb\u8bd1\u670d\u52a1\u6ca1\u6709\u8fd4\u56de\u53ef\u53d1\u9001\u7684\u7ed3\u679c\u3002")
-        return
-
-    await send_group_forward_msg(
-        bot,
-        event,
-        texts,
-        nickname="\u795e\u4eba",
-        fallback_notice="\u5408\u5e76\u8f6c\u53d1\u53d1\u9001\u5931\u8d25\uff0c\u5df2\u5207\u6362\u4e3a\u666e\u901a\u6d88\u606f\u53d1\u9001\u3002",
-    )
+    from services.unified_agent import handle_question
+    await handle_question(bot,event,"翻译成中文："+text if text else "")

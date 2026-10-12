@@ -43,7 +43,7 @@ def extract_mentioned_question(message, bot_id: str) -> tuple[bool, str]:
             continue
         if seg.type == "text":
             parts.append(str(seg))
-        elif seg.type != "at":
+        elif seg.type not in {"at", "reply"}:
             parts.append(str(seg))
 
     question = "".join(parts).strip()

@@ -91,9 +91,12 @@ def build_agent_payload(question: str, settings: YgoRagAgentSettings) -> dict[st
 async def query_ygo_rag_agent(
     question: str,
     settings: YgoRagAgentSettings | None = None,
+    *, session_id: str | None = None, quoted_reply: str = "",
 ) -> YgoRagAgentResponse:
     active_settings = settings or YgoRagAgentSettings.from_env()
     payload = build_agent_payload(question, active_settings)
+    if session_id: payload["session_id"] = session_id
+    if quoted_reply: payload["quoted_reply"] = quoted_reply[:4000]
 
     async with httpx.AsyncClient(timeout=active_settings.timeout_seconds) as client:
         response = await client.post(active_settings.api_url, json=payload)
