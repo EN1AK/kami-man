@@ -74,12 +74,13 @@ async def handle_question(bot,event,question):
     nodes=[make_forward_node(int(event.self_id),"神人",Message(MessageSegment.text(text))) for text in texts]
     from services.riftbound_api import card_image,format_riftbound_card
     for block in response.tool_blocks:
-        if block.tool!="rift_search_cards" or not block.ok or block.result.get("ambiguous"):continue
-        for card in block.result.get("results",[])[:3]:
+        if block.tool!="rift_search_cards" or not block.ok:continue
+        for card in block.result.get("results",[]):
             card=dict(card)
             card["editions"]=[{"card_key":code} for code in card.get("editions",[])]
             image,language=await card_image(card)
             message=Message()
+            if block.result.get("ambiguous"):message+=MessageSegment.text("候选卡片（请确认卡号）\n")
             if image:message+=MessageSegment.image(image)
             if language=="en":message+=MessageSegment.text("（英文卡图）\n")
             message+=MessageSegment.text(format_riftbound_card(card))
