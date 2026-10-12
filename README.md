@@ -35,10 +35,14 @@
 
 ### Riftbound
 
-- `rb 卡名` / `符文查卡 卡名` / `符文 卡名`：查询单张 Riftbound 卡片。
+- `rb 卡名` / `符文查卡 卡名`：查询卡片，支持中文名、英文名、副标题、编号和模糊搜索。同名卡返回候选，使用编号查询指定版本。
 - `rbpl 卡名` / `符文批量 卡名`：批量查询 Riftbound 卡片。
 
-Riftbound 卡片数据文件为 `data/riftbound_cards.json`，可通过 `assets/sync_riftbound_db.py` 同步。
+数据来自 riftsim 的 `cards_bilingual.db`，默认读取相邻仓库，可通过 `RIFTBOUND_CARDS_DB` 配置快照路径。普通版本优先；重印和异画按卡名、效果及属性归组；错字匹配仅返回候选，不自动选牌。每次批量最多展示10种卡片。
+
+图片优先中文，缺失时使用英文；服务器缓存目录由 `RIFTBOUND_IMAGE_CACHE` 指定，默认 `data/riftbound_images/`。在 Linux 服务器执行 `python assets/cache_riftbound_images.py` 可补全卡图，支持断点重跑。卡图失败仍返回文字，人工补译与勘误分别标注。
+
+`符文规则 问题` / `符文裁定 问题` 继续使用独立的规则问答服务；不注册宽泛的 `符文` 查卡别名。
 
 ### 系统管理
 
@@ -71,7 +75,8 @@ Riftbound 卡片数据文件为 `data/riftbound_cards.json`，可通过 `assets/
 ├── assets/
 │   ├── help.md               # 帮助文案
 │   ├── render_help.py        # 帮助图渲染脚本
-│   └── sync_riftbound_db.py  # Riftbound 数据同步脚本
+│   ├── cache_riftbound_images.py # 服务器卡图补全
+│   └── sync_riftbound_db.py  # 旧版 JSON 同步脚本（不再使用）
 └── data/                     # 运行时数据目录
 ```
 

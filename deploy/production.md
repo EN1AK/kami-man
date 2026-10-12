@@ -339,3 +339,38 @@ Expected:
 - Removing or renaming response fields requires a bot compatibility update
   before deploying the RAG change.
 - Data updates should be treated as production releases and must keep a backup.
+
+## Riftbound Card Lookup
+
+Commands `rb` / `符文查卡` and `rbpl` / `符文批量` / `符文批量查卡`
+query the bilingual SQLite database directly. Lookup supports subtitles, exact
+codes, substring matching and typo candidates. Same-effect editions are grouped;
+the broad `符文` alias is not registered, preserving rules Q&A triggers.
+
+- `RIFTBOUND_CARDS_DB`: defaults to the sibling `riftsim/cards_bilingual.db`.
+  For production use `/home/ubuntu/qqbot/kami-man/data/riftbound/cards_bilingual.db`,
+  a validated runtime snapshot of the repaired local riftsim DB.
+- `RIFTBOUND_IMAGE_CACHE`: defaults to `data/riftbound_images/` in the bot repo.
+  For production use `/home/ubuntu/qqbot/kami-man/data/riftbound_images`.
+- Put these environment variables in a dedicated systemd drop-in,
+  `/etc/systemd/system/kami-man.service.d/riftbound-cards.conf`, preserving the
+  existing RAG configuration.
+- Download images **on the Linux server only**, using the bot virtualenv:
+
+  ```bash
+  cd /home/ubuntu/qqbot/kami-man
+  RIFTBOUND_CARDS_DB=/home/ubuntu/qqbot/kami-man/data/riftbound/cards_bilingual.db \
+    RIFTBOUND_IMAGE_CACHE=/home/ubuntu/qqbot/kami-man/data/riftbound_images \
+    venv/bin/python assets/cache_riftbound_images.py --concurrency 4
+  ```
+
+  The downloader resumes valid cached images, retries failures and falls back
+  from CN to EN. Cache filenames hash the source URL. Downloads are size-limited
+  and written atomically. `download_report.json` records coverage, English
+  fallbacks and failures. The script refuses Windows execution.
+- Validate updated snapshots before atomically replacing the configured file.
+  Preserve `text_cn_filled` / `cn_fill_note`: rebuilding from the raw scrape
+  alone loses reviewed supplements. The index refreshes on file timestamp or
+  size changes. Supplementary translations and errata are labeled separately.
+- Verify with `DRIVER=~none venv/bin/python -m pytest tests -q`, then restart the
+  bot and check its service logs. QQ delivery requires a real user command.
