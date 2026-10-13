@@ -462,7 +462,13 @@ Jihuanshe session. The bridge only offers version/price queries, never arbitrary
 JavaScript execution or WeChat login tokens.
 
 The Windows task `KamiMan-Jihuanshe-Bridge` starts a hidden supervisor at the
-current user's logon, with normal user privileges. The supervisor restarts a
+current user's logon, with normal user privileges. A repeating one-minute
+trigger also restores the supervisor if it exits; overlapping runs are ignored.
+The supervisor adopts an existing bridge only after checking its saved process
+ID, creation time and script/config paths, preserving the active mini-program
+connection. `start.ps1 -Status` reports both supervision and mini-program
+auto-open mode. An explicit `start.ps1 -Stop` remains stopped across watchdog
+checks until `start.ps1` clears the stop request. The supervisor restarts a
 failed bridge with a 5–60 second backoff and removes only its own debugger/tunnel
 children. The bridge serializes queries, checks the session every 30 seconds and restarts
 failed debugger/tunnel processes. The local configuration now uses
