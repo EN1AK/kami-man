@@ -47,9 +47,47 @@ class Cdp {
   async evaluate(expression,contextId){const result=await this.call('Runtime.evaluate',{expression,contextId,returnByValue:true,silent:true});if(result.exceptionDetails)throw new BridgeError('context_lost');return result.result?.value;}
 }
 
+const SCOPES = Object.freeze({
+  ygo: {jp:{game_key:'ygo',game_sub_key:'ocg',source_language:'jp'},sc:{game_key:'ygo',game_sub_key:'sc',source_language:'sc'},en:{game_key:'ygo',game_sub_key:'tcg',source_language:'en'}},
+  riftbound: {sc:{game_key:'lol',game_sub_key:'default',source_language:'sc'},tc:{game_key:'lol',game_sub_key:'tc',source_language:'tc'},en:{game_key:'lol',game_sub_key:'en',source_language:'en'},kr:{game_key:'lol',game_sub_key:'kr',source_language:'kr'}},
+});
+function scopeFor(input) {
+  const game=input.game??'ygo',language=input.language??(game==='riftbound'?'sc':'jp');
+  if(typeof game!=='string'||typeof language!=='string'||!Object.hasOwn(SCOPES,game)||!Object.hasOwn(SCOPES[game],language))throw new BridgeError('invalid_input');
+  return {game,language,...SCOPES[game][language]};
+}
 function queryCode(operation,input,target) {
-  if(operation==='versions')return `(function(){const state=${target}={status:'pending'};require('api/cloud.js').cloudRequest(${JSON.stringify({keyword:input.name_jp,game_key:'ygo',game_sub_key:'ocg',page:input.page,sorting_price_type:'product'})},'getCardVersions','/api/market/card-versions').then(response=>{const body=response.result.data,rows=Array.isArray(body)?body:body.data;if(!Array.isArray(rows))throw new Error();Object.assign(state,{status:'done',entries:rows.map(r=>({id:r.card_version_id||r.id,card_id:r.card_id,object_type:r.card_object_type||'unknown',name_jp:r.name_jp||'',name_cn:r.name_cn||'',aliases:[r.name_origin,...(r.card_names||[]).map(n=>n.name_value)].filter(v=>typeof v==='string'&&v),number:r.number||'',rarity:r.rarity||''})),last_page:Array.isArray(body)?1:body.last_page||1});}).catch(()=>{state.status='upstream_error';});return true;})()`;
-  return `(function(){const state=${target}={status:'pending'},request=require('api/cloud.js').cloudRequest;Promise.all(${JSON.stringify(input.version_ids)}.map(id=>{const params={card_version_id:id,game_key:'ygo',game_sub_key:'ocg',token:getApp().globalData.jwt};return Promise.all([request(params,'findCardVersion','/api/market/card-versions/'+id),request({...params,filter:'1_month'},'getPriceHistory','/api/market/products/price-history')]).then(results=>{const detail=results[0].result.data,history=results[1].result.data;if(Number(detail.id)!==id||!Array.isArray(history))throw new Error();const points=history.filter(p=>p&&typeof p.date==='string').sort((a,b)=>a.date.localeCompare(b.date)),latest=points.length?points[points.length-1]:null;return {id,min_price:detail.min_price??null,market_price:latest?latest.price:null,market_date:latest?latest.date:null};}).catch(()=>({id,error:true}));})).then(prices=>{Object.assign(state,{status:'done',prices});}).catch(()=>{state.status='upstream_error';});return true;})()`;
+  const scope=scopeFor(input);
+  const params={game_key:scope.game_key,game_sub_key:scope.game_sub_key};
+  if(operation==='versions')return `(function(){
+    const state=${target}={status:'pending'},scope=${JSON.stringify(scope)};
+    require('api/cloud.js').cloudRequest(${JSON.stringify({...params,keyword:input.keyword??input.name_jp,page:input.page,sorting_price_type:'product'})},'getCardVersions','/api/market/card-versions','get',false).then(response=>{
+      const body=response.result.data,rows=Array.isArray(body)?body:body.data;
+      if(!Array.isArray(rows))throw new Error();
+      const entries=rows.filter(r=>!r.language||r.language===scope.source_language).map(r=>({
+        id:r.card_version_id||r.id,card_id:r.card_id,object_type:r.card_object_type||'unknown',
+        name_jp:r.name_jp||'',name_cn:r.name_cn||'',name_en:r.name_en||'',
+        aliases:[r.name_origin,...(r.card_names||[]).map(n=>n.name_value)].filter(v=>typeof v==='string'&&v),
+        number:r.number||'',rarity:r.rarity||'',game:scope.game,language:scope.language,source_language:r.language||null,
+      }));
+      Object.assign(state,{status:'done',entries,last_page:Array.isArray(body)?1:body.last_page||1});
+    }).catch(()=>{state.status='upstream_error';});return true;
+  })()`;
+  return `(function(){
+    const state=${target}={status:'pending'},request=require('api/cloud.js').cloudRequest,scope=${JSON.stringify(scope)};
+    Promise.all(${JSON.stringify(input.version_ids)}.map(id=>{
+      const params={...${JSON.stringify(params)},card_version_id:id};
+      return Promise.all([
+        request(params,'findCardVersion','/api/market/card-versions/'+id,'get',false),
+        request({...params,filter:'1_month'},'getPriceHistory','/api/market/products/price-history','get',false),
+      ]).then(results=>{
+        const detail=results[0].result.data,history=results[1].result.data;
+        if(Number(detail.id)!==id||detail.game_key!==scope.game_key||detail.game_sub_key!==scope.game_sub_key||!Array.isArray(history))throw new Error();
+        const points=history.filter(p=>p&&typeof p.date==='string').sort((a,b)=>a.date.localeCompare(b.date)),latest=points.length?points[points.length-1]:null;
+        return {id,game:scope.game,language:scope.language,min_price:detail.min_price??null,market_price:latest?latest.price:null,market_date:latest?latest.date:null};
+      }).catch(()=>({id,game:scope.game,language:scope.language,error:true}));
+    })).then(prices=>{Object.assign(state,{status:'done',prices});}).catch(()=>{state.status='upstream_error';});return true;
+  })()`;
 }
 
 class Controller {
@@ -106,6 +144,7 @@ class Controller {
     this.contextId=null;if(loginMissing)throw new BridgeError('needs_login');return false;
   }
   async openMiniapp(bootstrap=false) {
+    if(this.config.autoOpen!==true)throw new BridgeError('needs_miniapp');
     if(!this.config.shortcut||!fs.existsSync(this.config.shortcut))throw new BridgeError('needs_miniapp');
     if(Date.now()-(bootstrap?this.lastBootstrap:this.lastOpen)<30000)throw new BridgeError('needs_miniapp');
     if(bootstrap){this.lastBootstrap=Date.now();this.log('runtime_start');}
@@ -169,14 +208,16 @@ class Controller {
 }
 
 function validate(route,body) {
+  const {game,language}=scopeFor(body);
   if(route==='/v1/versions') {
-    if(typeof body.name_jp!=='string'||!body.name_jp.trim()||body.name_jp.length>120)throw new BridgeError('invalid_input');
-    return {operation:'versions',payload:{name_jp:body.name_jp.trim()}};
+    const keyword=body.keyword??body.name_jp;
+    if(typeof keyword!=='string'||!keyword.trim()||keyword.length>120)throw new BridgeError('invalid_input');
+    return {operation:'versions',payload:{keyword:keyword.trim(),game,language}};
   }
   if(route==='/v1/prices') {
     const ids=body.version_ids;
     if(!Array.isArray(ids)||ids.length<1||ids.length>20||ids.some(id=>!Number.isSafeInteger(id)||id<=0)||new Set(ids).size!==ids.length)throw new BridgeError('invalid_input');
-    return {operation:'prices',payload:{version_ids:ids}};
+    return {operation:'prices',payload:{version_ids:ids,game,language}};
   }
   throw new BridgeError('not_found');
 }
@@ -206,4 +247,4 @@ if(require.main===module) {
   const started=Date.now(),stopFile=path.join(path.dirname(process.env.JHS_CONFIG_FILE||process.argv[2]),'stop.request');
   const stopTimer=setInterval(()=>{try{if(fs.statSync(stopFile).mtimeMs>=started)stop();}catch{}},1000);process.on('SIGINT',stop);process.on('SIGTERM',stop);
 }
-module.exports={BridgeError,Cdp,Controller,queryCode,validate,authenticated,serve};
+module.exports={BridgeError,Cdp,Controller,scopeFor,queryCode,validate,authenticated,serve};

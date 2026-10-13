@@ -1,4 +1,4 @@
-"""游戏王集换社查价，按聊天及发起用户保存三分钟的罕贵选择。"""
+"""游戏王及符文战场集换社查价，按聊天及用户保存带语种的版本选择。"""
 import re
 import time
 from dataclasses import dataclass
@@ -8,9 +8,10 @@ from nonebot.adapters.onebot.v11 import Message, MessageEvent, MessageSegment
 from nonebot.params import CommandArg
 from nonebot.rule import Rule
 
-from services.jihuanshe_api import PriceError, find_versions, parse_query, price_message, rarity_groups, select_rarity
+from services.jihuanshe_api import PriceError, find_versions, parse_query, price_message, rarity_groups, select_rarity, scope_label
 
 card_price = on_command('卡价', aliases={'卡价查询', '查价格'}, priority=5, block=True)
+rift_price = on_command('符文卡价', aliases={'符文查价', 'rb价', 'rbprice'}, priority=5, block=True)
 TTL = 180
 
 
@@ -19,6 +20,8 @@ class Selection:
     name: str
     groups: list[tuple[str, list[dict]]]
     expires: float
+    game: str = 'ygo'
+    language: str = 'jp'
 
 
 pending: dict[tuple[str, str], Selection] = {}
@@ -46,24 +49,23 @@ async def awaiting_selection(event: MessageEvent) -> bool:
 price_selection = on_message(rule=Rule(awaiting_selection), priority=6, block=True)
 
 
-@card_price.handle()
-async def handle_price(event: MessageEvent, args: Message = CommandArg()):
+async def respond_price(matcher, event: MessageEvent, text: str, default_game: str):
     prune_selections()
     pending.pop(session_key(event), None)
-    query, rarity = parse_query(args.extract_plain_text())
-    if not query:
-        await card_price.finish('用法：卡价 卡名或卡密\n例如：卡价 原石之皇脉\n也可以：卡价 原石之皇脉 UTR')
     try:
-        name, entries = await find_versions(query)
+        query = parse_query(text, default_game)
+        if not query.name:
+            await matcher.finish('用法：卡价 卡名 [语种] [罕贵]\n例如：卡价 原石之皇脉 简中 SR\n符文：符文卡价 OGN-119 简中\n默认：游戏王日文，符文战场简中。')
+        name, entries = await find_versions(query.name, query.game, query.language)
         groups = rarity_groups(entries)
-        if rarity or len(groups) == 1:
-            selected = select_rarity(groups, rarity or '1')
+        if query.rarity or len(groups) == 1:
+            selected = select_rarity(groups, query.rarity or '1')
             if not selected:
                 raise PriceError('该卡没有这个罕贵，可选：' + '、'.join(r for r, _ in groups))
-            result = await price_message(name, selected)
+            result = await price_message(name, selected, query.game, query.language)
         else:
-            pending[session_key(event)] = Selection(name, groups, time.monotonic() + TTL)
-            lines = [f'{name}：请选择罕贵']
+            pending[session_key(event)] = Selection(name, groups, time.monotonic() + TTL, query.game, query.language)
+            lines = [f'{name}（{scope_label(query.game, query.language)}）：请选择罕贵']
             for index, (label, rows) in enumerate(groups, 1):
                 packs = '、'.join(dict.fromkeys(str(row.get('number') or '未知卡号') for row in rows))
                 lines.append(f'{index}. {label}（{packs}）')
@@ -71,7 +73,17 @@ async def handle_price(event: MessageEvent, args: Message = CommandArg()):
             result = '\n'.join(lines)
     except PriceError as error:
         result = str(error)
-    await card_price.finish(MessageSegment.text(result))
+    await matcher.finish(MessageSegment.text(result))
+
+
+@card_price.handle()
+async def handle_price(event: MessageEvent, args: Message = CommandArg()):
+    await respond_price(card_price, event, args.extract_plain_text(), 'ygo')
+
+
+@rift_price.handle()
+async def handle_rift_price(event: MessageEvent, args: Message = CommandArg()):
+    await respond_price(rift_price, event, args.extract_plain_text(), 'riftbound')
 
 
 @price_selection.handle()
@@ -80,7 +92,7 @@ async def handle_selection(event: MessageEvent):
     selection = pending.get(key)
     if not selection or selection.expires <= time.monotonic():
         pending.pop(key, None)
-        await price_selection.finish('选择已过期，请重新发送「卡价 卡名」。')
+        await price_selection.finish('选择已过期，请重新发送查价命令。')
     answer = event.get_plaintext().strip()
     if answer == '取消':
         pending.pop(key, None)
@@ -90,7 +102,7 @@ async def handle_selection(event: MessageEvent):
         await price_selection.finish('请选择列表中的编号或罕贵，或回复「取消」。')
     pending.pop(key, None)
     try:
-        result = await price_message(selection.name, selected)
+        result = await price_message(selection.name, selected, selection.game, selection.language)
     except PriceError as error:
         result = str(error)
     await price_selection.finish(MessageSegment.text(result))

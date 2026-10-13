@@ -399,12 +399,42 @@ Blank/oversized requests, usage commands and exact `清空对话` are free. Stan
 
 ## Jihuanshe price lookup on Windows
 
-The QQ commands `卡价 卡名` and `卡价 卡名 UTR` use the logged-in Windows
+The QQ commands `卡价 卡名 [语种] [罕贵]` and
+`符文卡价 卡名或编号 [语种] [罕贵]` use the logged-in Windows
 WeChat Jihuanshe mini-program, without a rooted Android phone. Version selection
 expires after 180 seconds and is scoped to bot/chat/user. Results keep pack
 numbers separate and distinguish current minimum listing price from the latest
-Jihuanshe market-history point. Both are CNY; listings may include different
-languages. This integration covers Jihuanshe OCG, not Cardrush or PTCG.
+Jihuanshe market-history point. All prices are CNY. Search, selection, detail
+and history requests carry the same game/language scope; details must match the
+requested platform partition before any price is returned. Results and selection
+prompts show the language. Missing market history stays unavailable; it is not
+replaced by another language's price. Cardrush and PTCG remain outside this integration.
+
+Verified partition mapping from the mini-program game configuration:
+
+| Game | Language | `game_key` | `game_sub_key` |
+|---|---|---|---|
+| Yu-Gi-Oh | Japanese (default) | `ygo` | `ocg` |
+| Yu-Gi-Oh | Simplified Chinese | `ygo` | `sc` |
+| Yu-Gi-Oh | English | `ygo` | `tcg` |
+| Riftbound | Simplified Chinese (default) | `lol` | `default` |
+| Riftbound | Traditional Chinese | `lol` | `tc` |
+| Riftbound | English | `lol` | `en` |
+| Riftbound | Korean | `lol` | `kr` |
+
+The old `ocg` scope was the platform's Japanese partition; it was not a mixed
+language scope. Explicit partition labels now avoid that ambiguity. For example:
+`卡价 原石之皇脉 简中 SR`, `卡价 原石之皇脉 日文 SR`,
+`符文卡价 OGN-119 英文` or `卡价 符文 OGN-119 简中`.
+The bridge accepts only this allowlist. Unsupported or conflicting languages
+are rejected. The legacy `name_jp` request key remains supported for old clients;
+new clients send `keyword`, `game` and `language` on both endpoints.
+
+Riftbound resolves full titles and subtitles through the existing card snapshot
+when available, with direct market search as a fallback. Accessories are excluded;
+ambiguous character names return complete-title candidates. Card numbers select
+an exact edition, preserving base/alternate/signed variants. A space-separated
+subtitle may need a character search followed by full-title matching.
 
 The local bridge uses [WMPFDebugger](https://github.com/evi0s/WMPFDebugger).
 Verified on WeChat 4.1.15.13 / WMPF 25715, Node 22+ and PowerShell 7. The debugger
@@ -426,7 +456,7 @@ create a desktop shortcut. From this repository:
 
 Runtime dependencies, private `config.json` and logs stay under
 `.venv/jhs-windows-poc/`, excluded from Git. Setup preserves the existing bridge
-token and accepts `-DebuggerDir`, `-ShortcutPath`, `-SshHost` and `-AppId`.
+token and accepts `-DebuggerDir`, `-ShortcutPath`, `-SshHost` and `-AppId`; `-EnableAutoOpen` is an explicit opt-in.
 The default target app ID is `wx64479c83c7630409`, verified in the logged-in
 Jihuanshe session. The bridge only offers version/price queries, never arbitrary
 JavaScript execution or WeChat login tokens.
@@ -434,10 +464,20 @@ JavaScript execution or WeChat login tokens.
 The Windows task `KamiMan-Jihuanshe-Bridge` starts a hidden supervisor at the
 current user's logon, with normal user privileges. The supervisor restarts a
 failed bridge with a 5–60 second backoff and removes only its own debugger/tunnel
-children. The bridge serializes queries, checks the session every 30 seconds,
-restarts failed debugger/tunnel processes and reopens the mini-program through
-its desktop shortcut when needed. It closes only the Jihuanshe mini-program
-window during recovery. This can bring that window to the foreground.
+children. The bridge serializes queries, checks the session every 30 seconds and restarts
+failed debugger/tunnel processes. The local configuration now uses
+`autoOpen: false`, as requested, so tests and recovery never launch or activate
+the mini-program on the user's working desktop. The user opened it on a dedicated
+Windows virtual desktop; background requests do not switch desktops.
+
+When `autoOpen` is false, a missing mini-program session requires manually
+reopening Jihuanshe on that dedicated desktop. The supervisor and SSH recovery
+continue to work. A debugger restart may also need this manual step. A virtual
+desktop alone is not treated as authorization to launch a window on the current
+desktop. For a separate machine where foreground windows are acceptable,
+`setup.ps1 -EnableAutoOpen` explicitly opts into shortcut recovery. That mode
+closes only the Jihuanshe mini-program window and may bring its replacement to
+the foreground. New private configurations default to manual opening.
 
 Windows must remain online and awake with the user signed in and WeChat logged
 in. A lost WeChat/Jihuanshe login still needs manual login; the bridge does not
@@ -476,7 +516,9 @@ recreated the reverse connection; killing the debugger restored the shortcut
 session and price requests. The supervisor also recovers a killed bridge and
 cleans up its orphaned helper processes. Closing the Jihuanshe window also
 reopened the mini-program and restored real prices. Login-triggered startup was registered
-and run through Task Scheduler; a full Windows reboot was not tested.
+and run through Task Scheduler; a full Windows reboot was not tested. On
+2026-10-13 the local configuration disabled automatic mini-program launching
+to avoid interrupting the working desktop.
 
 To stop or disable logon startup:
 
@@ -489,3 +531,14 @@ To stop or disable logon startup:
 Start again with `start.ps1`. To remove production price configuration, remove
 only the `jihuanshe.conf` drop-in, reload systemd and restart the bot; preserve
 other drop-ins. Commands then report that price lookup is not configured.
+
+
+Language/Riftbound verification (2026-10-13): real background requests returned
+separate ROTA-JP058 SR and ROTA-SC058 SR prices, and OGN-119 Simplified Chinese,
+English and Traditional Chinese results. Korean Riftbound and English Yu-Gi-Oh
+version searches also returned their respective partitions. A foreign Japanese
+version ID requested under Simplified Chinese is rejected rather than relabeled.
+No-history/no-listing results remain unavailable. Python command/client tests and
+Node bridge tests cover scope isolation, two-step selection, numbered editions,
+accessory exclusion and manual desktop mode. Local automatic launching remains
+disabled; the user reopened Jihuanshe on a dedicated virtual desktop.

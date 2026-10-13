@@ -1,4 +1,4 @@
-param([string]$DebuggerDir, [string]$ShortcutPath, [string]$SshHost = 'ubuntu@150.109.237.67', [string]$AppId = 'wx64479c83c7630409')
+param([string]$DebuggerDir, [string]$ShortcutPath, [string]$SshHost = 'ubuntu@150.109.237.67', [string]$AppId = 'wx64479c83c7630409', [switch]$EnableAutoOpen)
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $runtimeDir = Join-Path $repoRoot '.venv/jhs-windows-poc'
@@ -40,5 +40,7 @@ $config.debuggerDir = (Resolve-Path -LiteralPath $DebuggerDir).Path
 $config.shortcut = (Resolve-Path -LiteralPath $ShortcutPath).Path
 $config.sshHost = $SshHost
 $config.appId = $AppId
+if (-not $config.ContainsKey('autoOpen')) { $config.autoOpen = $false }
+if ($EnableAutoOpen) { $config.autoOpen = $true }
 $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
 Write-Output 'Debugger prepared. Private config saved; the existing bridge token was preserved.'
