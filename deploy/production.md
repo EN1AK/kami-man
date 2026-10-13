@@ -542,3 +542,24 @@ No-history/no-listing results remain unavailable. Python command/client tests an
 Node bridge tests cover scope isolation, two-step selection, numbered editions,
 accessory exclusion and manual desktop mode. Local automatic launching remains
 disabled; the user reopened Jihuanshe on a dedicated virtual desktop.
+
+
+Yu-Gi-Oh fuzzy price selection (2026-10-13): `卡价` reuses the same
+`services.ygo_api.search_cards` YGOCDB search as `ck` and `pl`, without calling
+image download or card-message builders. Unique exact standard-name/alias or
+password matches take priority over API order. Otherwise multiple matches show
+up to 25 text candidates, the same visible limit as `pl`, including card names
+and passwords. Reply with a list number, listed password or unique full name.
+Duplicates are removed by password; a truncated list asks for a narrower query.
+
+The next stage selects rarity; an explicitly supplied rarity skips that stage.
+Both stages keep the original game/language, are scoped to bot/chat/user, expire
+after 180 seconds each and support cancellation. The chosen canonical card
+metadata is reused directly, so selecting a candidate does not rerun the fuzzy
+search and accidentally pick a different card. If YGOCDB is unavailable and the
+market search finds several cards, the same text chooser keeps each card's
+market versions together; market card IDs are never presented as YGO passwords.
+`ck`, `pl` and their image responses retain their existing behavior. Riftbound's
+ambiguous-title handling is unchanged. Examples: `卡价 原石 简中` then choose
+`56506740`, then `SR`; or `卡价 原石 简中 SR` then choose the card to get prices.
+This update changes only the bot; no local mini-program restart is needed.

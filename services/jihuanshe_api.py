@@ -30,6 +30,24 @@ class PriceError(Exception):
     """可直接展示的固定失败提示。"""
 
 
+CARD_CHOICE_LIMIT = 25  # Same visible result limit as pl.
+
+
+@dataclass(frozen=True)
+class CardCandidate:
+    name: str
+    password: str | None = None
+    card: dict | None = None
+    entries: list[dict] | None = None
+
+
+class CardChoices(PriceError):
+    def __init__(self, candidates: list[CardCandidate]):
+        super().__init__('匹配到多张游戏王卡片，请先选卡。')
+        self.candidates = candidates[:CARD_CHOICE_LIMIT]
+        self.more = len(candidates) > CARD_CHOICE_LIMIT
+
+
 @dataclass(frozen=True)
 class PriceQuery:
     name: str
@@ -64,6 +82,7 @@ def parse_query(text: str, default_game: str = 'ygo') -> PriceQuery:
     if tokens and unicodedata.normalize('NFKC', tokens[-1]).upper() in RARITIES:
         rarity = unicodedata.normalize('NFKC', tokens.pop()).upper()
     return PriceQuery(' '.join(tokens), rarity, game, language)
+
 
 async def bridge_request(path: str, payload: dict) -> dict:
     url = os.getenv('JIHUANSHE_BRIDGE_URL', '').strip().rstrip('/')
@@ -131,7 +150,46 @@ def _rift_code(number: str) -> str | None:
     return normalize_code(number)
 
 
-async def find_versions(query: str, game: str = 'ygo', language: str = 'jp') -> tuple[str, list[dict]]:
+def ygo_card_password(card: dict) -> str | None:
+    value = card.get('id')
+    if type(value) is int and value > 0:
+        return str(value).zfill(8)
+    if isinstance(value, str) and value.isascii() and value.isdecimal() and int(value) > 0:
+        return value.zfill(8)
+    return None
+
+
+def ygo_card_names(card: dict) -> set[str]:
+    return {normalize_name(str(value)) for key, value in card.items()
+            if key in {'cn_name', 'sc_name', 'md_name', 'jp_name', 'en_name'} and value}
+
+
+async def resolve_ygo_card(query: str) -> dict | None:
+    # Reuse the same YGOCDB search as ck/pl; only the text-only choice flow differs.
+    cards = await search_cards(query)
+    unique = []
+    seen = set()
+    for card in cards or []:
+        if not isinstance(card, dict) or not ygo_card_names(card):
+            continue
+        key = ygo_card_password(card) or tuple(sorted(ygo_card_names(card)))
+        if key not in seen:
+            seen.add(key)
+            unique.append(card)
+    normalized = normalize_name(query)
+    password = normalized.zfill(8) if normalized.isascii() and normalized.isdecimal() else None
+    exact = [card for card in unique if normalized in ygo_card_names(card)
+             or (password is not None and password == ygo_card_password(card))]
+    matches = exact or unique
+    if len(matches) > 1:
+        raise CardChoices([CardCandidate(
+            name=card.get('cn_name') or card.get('sc_name') or card.get('jp_name') or card.get('en_name') or query,
+            password=ygo_card_password(card), card=card,
+        ) for card in matches])
+    return matches[0] if matches else None
+
+
+async def find_versions(query: str, game: str = 'ygo', language: str = 'jp', *, selected_card: dict | None = None) -> tuple[str, list[dict]]:
     label = scope_label(game, language)
     keyword = query
     names: set[str] = set()
@@ -139,13 +197,11 @@ async def find_versions(query: str, game: str = 'ygo', language: str = 'jp') -> 
     code = _rift_code(query) if game == 'riftbound' else None
     if game == 'ygo':
         try:
-            cards = await search_cards(query)
-            if cards:
-                card = cards[0]
-                keyword = card.get('jp_name') or query
-                names = {normalize_name(str(value)) for key, value in card.items()
-                         if key in {'cn_name', 'sc_name', 'md_name', 'jp_name', 'en_name'} and value}
-                display_name = card.get('cn_name')
+            card = selected_card if selected_card is not None else await resolve_ygo_card(query)
+            if card:
+                keyword = card.get('jp_name') or card.get('cn_name') or query
+                names = ygo_card_names(card)
+                display_name = card.get('cn_name') or card.get('sc_name')
         except (httpx.HTTPError, ValueError):
             pass
     elif not code:
@@ -177,11 +233,20 @@ async def find_versions(query: str, game: str = 'ygo', language: str = 'jp') -> 
         raise PriceError(f'未找到「{query}」的{label}卡片版本。')
     card_ids = {row.get('card_id') for row in entries}
     if len(card_ids) > 1:
+        if game == 'ygo':
+            by_card: dict[object, list[dict]] = {}
+            for row in entries:
+                by_card.setdefault(row.get('card_id'), []).append(row)
+            raise CardChoices([CardCandidate(
+                name=rows[0].get('name_cn') or rows[0].get('name_jp') or query,
+                entries=rows,
+            ) for rows in by_card.values()])
         candidates = list(dict.fromkeys(row.get('name_cn') or row.get('name_jp') or '' for row in entries))
-        hint = '完整卡名或卡号' if game == 'riftbound' else '完整卡名或卡密'
-        raise PriceError(f'{label}找到多张卡片，请输入{hint}：\n' + '\n'.join(candidates[:8]))
+        raise PriceError(f'{label}找到多张卡片，请输入完整卡名或卡号：\n' + '\n'.join(candidates[:8]))
     name = display_name or entries[0].get('name_cn') or query
     return name, entries
+
+
 def rarity_groups(entries: list[dict]) -> list[tuple[str, list[dict]]]:
     groups: dict[str, list[dict]] = {}
     for row in entries:

@@ -1,6 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+import httpx
 import nonebot
 import pytest
 from nonebot.exception import FinishedException
@@ -166,3 +167,141 @@ def test_wrong_language_prices_are_not_displayed(monkeypatch):
     monkeypatch.setattr(api, 'bridge_request', AsyncMock(return_value={'prices': [{'id': 1, 'game': 'riftbound', 'language': 'sc', 'min_price': '999'}]}))
     text = asyncio.run(api.price_message('阿狸', entries, 'riftbound', 'en'))
     assert '英文' in text and '999' not in text and '价格暂不可用' in text
+
+
+YGO_A = {'id': 1, 'cn_name': '原石A', 'jp_name': '原石A日文'}
+YGO_B = {'id': 2, 'cn_name': '原石B', 'jp_name': '原石B日文'}
+
+
+def test_fuzzy_ygo_search_requires_choice_before_market_lookup(monkeypatch):
+    search = AsyncMock(return_value=[YGO_A, YGO_B, YGO_B])
+    bridge = AsyncMock()
+    monkeypatch.setattr(api, 'search_cards', search)
+    monkeypatch.setattr(api, 'bridge_request', bridge)
+    with pytest.raises(api.CardChoices) as result:
+        asyncio.run(api.find_versions('原石', 'ygo', 'sc'))
+    assert [card.password for card in result.value.candidates] == ['00000001', '00000002']
+    search.assert_awaited_once_with('原石')
+    bridge.assert_not_awaited()
+
+
+@pytest.mark.parametrize('query', ['原石B', '00000002'])
+def test_exact_ygo_name_or_password_wins_over_search_order(monkeypatch, query):
+    monkeypatch.setattr(api, 'search_cards', AsyncMock(return_value=[YGO_A, YGO_B]))
+    assert asyncio.run(api.resolve_ygo_card(query)) == YGO_B
+
+
+class ChoiceEvent:
+    self_id = 123
+    def __init__(self, text='', session='group_1_5'):
+        self.text = text
+        self.session = session
+    def get_session_id(self): return self.session
+    def get_plaintext(self): return self.text
+
+
+def market_rows(language='sc'):
+    return [
+        {'id': 10, 'card_id': 100, 'name_cn': '原石B', 'number': 'PACK-001', 'rarity': 'SR', 'game': 'ygo', 'language': language},
+        {'id': 20, 'card_id': 100, 'name_cn': '原石B', 'number': 'PACK-002', 'rarity': 'UTR', 'game': 'ygo', 'language': language},
+    ]
+
+
+def test_choose_card_then_rarity_reuses_chosen_card_and_keeps_language(monkeypatch):
+    search = AsyncMock(return_value=[YGO_A, YGO_B])
+    bridge = AsyncMock(side_effect=[{'entries': market_rows()}, {'prices': [{'id': 20, 'game': 'ygo', 'language': 'sc', 'min_price': '4'}]}])
+    monkeypatch.setattr(api, 'search_cards', search)
+    monkeypatch.setattr(api, 'bridge_request', bridge)
+    initial_finish = AsyncMock(side_effect=FinishedException)
+    followup_finish = AsyncMock(side_effect=FinishedException)
+    monkeypatch.setattr(plugin.card_price, 'finish', initial_finish)
+    monkeypatch.setattr(plugin.price_selection, 'finish', followup_finish)
+    event = ChoiceEvent()
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_price(event, Message('原石 简中')))
+    assert initial_finish.call_args.args[0].type == 'text'
+    assert isinstance(plugin.pending[plugin.session_key(event)], plugin.CardSelection)
+    event.text = '2'
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_selection(event))
+    assert isinstance(plugin.pending[plugin.session_key(event)], plugin.Selection)
+    assert '请选择罕贵' in followup_finish.call_args.args[0].data['text']
+    event.text = 'UTR'
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_selection(event))
+    text = followup_finish.call_args.args[0].data['text']
+    assert '原石B' in text and '简中' in text and '¥4.00' in text
+    search.assert_awaited_once_with('原石')
+    assert bridge.await_args_list[0].args == ('/v1/versions', {'keyword': '原石B日文', 'game': 'ygo', 'language': 'sc'})
+    assert bridge.await_args_list[1].args == ('/v1/prices', {'version_ids': [20], 'game': 'ygo', 'language': 'sc'})
+    assert all(call.args[0].type == 'text' for call in followup_finish.call_args_list)
+    assert plugin.session_key(event) not in plugin.pending
+
+
+def test_card_password_reply_preserves_explicit_rarity(monkeypatch):
+    monkeypatch.setattr(api, 'search_cards', AsyncMock(return_value=[YGO_A, YGO_B]))
+    bridge = AsyncMock(side_effect=[{'entries': market_rows('en')}, {'prices': [{'id': 10, 'game': 'ygo', 'language': 'en', 'min_price': '7'}]}])
+    monkeypatch.setattr(api, 'bridge_request', bridge)
+    monkeypatch.setattr(plugin.card_price, 'finish', AsyncMock(side_effect=FinishedException))
+    finish = AsyncMock(side_effect=FinishedException)
+    monkeypatch.setattr(plugin.price_selection, 'finish', finish)
+    event = ChoiceEvent('00000002')
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_price(event, Message('原石 英文 SR')))
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_selection(event))
+    text = finish.call_args.args[0].data['text']
+    assert '英文' in text and '¥7.00' in text and '请选择罕贵' not in text
+    assert bridge.await_args_list[1].args[1] == {'version_ids': [10], 'game': 'ygo', 'language': 'en'}
+    assert plugin.session_key(event) not in plugin.pending
+
+
+def test_card_choices_are_isolated_and_do_not_capture_unrelated_commands(monkeypatch):
+    event = ChoiceEvent()
+    choice = api.CardCandidate('原石B', '00000002', YGO_B)
+    state = plugin.CardSelection(api.parse_query('原石 简中'), [choice], float('inf'))
+    plugin.pending[plugin.session_key(event)] = state
+    for text in ('1', '00000002', '原石B', '取消'):
+        assert asyncio.run(plugin.awaiting_selection(ChoiceEvent(text)))
+    for text in ('help', 'ck 青眼白龙', '历史', 'SR'):
+        assert not asyncio.run(plugin.awaiting_selection(ChoiceEvent(text)))
+    assert not asyncio.run(plugin.awaiting_selection(ChoiceEvent('1', 'group_2_5')))
+    finish = AsyncMock(side_effect=FinishedException)
+    monkeypatch.setattr(plugin.price_selection, 'finish', finish)
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_selection(ChoiceEvent('99')))
+    assert plugin.pending[plugin.session_key(event)] is state
+    with pytest.raises(FinishedException):
+        asyncio.run(plugin.handle_selection(ChoiceEvent('取消')))
+    assert not plugin.pending
+
+
+def test_expired_card_choices_do_not_capture_replies(monkeypatch):
+    event = ChoiceEvent('1')
+    plugin.pending[plugin.session_key(event)] = plugin.CardSelection(api.parse_query('原石'), [api.CardCandidate('卡')], 10)
+    monkeypatch.setattr(plugin.time, 'monotonic', lambda: 11)
+    assert not asyncio.run(plugin.awaiting_selection(event))
+    assert not plugin.pending
+
+
+def test_fallback_market_choices_keep_version_groups_without_fake_passwords(monkeypatch):
+    monkeypatch.setattr(api, 'search_cards', AsyncMock(side_effect=httpx.ConnectError('offline')))
+    rows = market_rows()
+    rows[1] = {**rows[1], 'card_id': 200, 'name_cn': '原石C'}
+    monkeypatch.setattr(api, 'bridge_request', AsyncMock(return_value={'entries': rows}))
+    with pytest.raises(api.CardChoices) as result:
+        asyncio.run(api.find_versions('原石', 'ygo', 'sc'))
+    candidates = result.value.candidates
+    assert len(candidates) == 2
+    assert candidates[0].entries == [rows[0]] and candidates[1].entries == [rows[1]]
+    assert all(candidate.password is None for candidate in candidates)
+
+
+def test_large_candidate_list_is_limited_and_marks_more(monkeypatch):
+    cards = [{'id': i, 'cn_name': f'候选{i}', 'jp_name': f'候选{i}日文'} for i in range(1, 27)]
+    monkeypatch.setattr(api, 'search_cards', AsyncMock(return_value=cards))
+    with pytest.raises(api.CardChoices) as result:
+        asyncio.run(api.resolve_ygo_card('候选'))
+    assert result.value.more and len(result.value.candidates) == 25
+    text = plugin.card_prompt(ChoiceEvent(), api.parse_query('候选'), result.value)
+    assert '仅显示前25张' in text and '候选26' not in text
