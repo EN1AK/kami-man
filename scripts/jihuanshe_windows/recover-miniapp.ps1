@@ -1,33 +1,13 @@
-param([Parameter(Mandatory)][string]$ShortcutPath, [switch]$LaunchOnly)
+param([Parameter(Mandatory)][string]$ShortcutPath, [Parameter(Mandatory)][guid]$TargetDesktopId, [switch]$LaunchOnly)
 $ErrorActionPreference = 'Stop'
-if (-not (Test-Path -LiteralPath $ShortcutPath)) { exit 1 }
-Add-Type -TypeDefinition @"
-using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
-public static class JhsMiniappWindow {
-    public delegate bool EnumCallback(IntPtr window, IntPtr parameter);
-    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumCallback callback, IntPtr parameter);
-    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
-    [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
-    public static void Close(string prefix) {
-        EnumWindows((window, parameter) => {
-            var title = new StringBuilder(512);
-            GetWindowText(window, title, title.Capacity);
-            if (!title.ToString().StartsWith(prefix, StringComparison.Ordinal)) return true;
-            uint processId; GetWindowThreadProcessId(window, out processId);
-            try {
-                var process = Process.GetProcessById((int)processId);
-                if (process.ProcessName == "WeChatAppEx" || process.ProcessName == "Weixin")
-                    PostMessage(window, 0x0010, IntPtr.Zero, IntPtr.Zero);
-            } catch {}
-            return true;
-        }, IntPtr.Zero);
-    }
+try {
+    . (Join-Path $PSScriptRoot 'desktop-common.ps1')
+    $result = [KamiJhs.Desktop]::Recover($TargetDesktopId, $ShortcutPath, $LaunchOnly.IsPresent)
+    [pscustomobject]@{placed=$result.Placed;desktop_unchanged=$result.DesktopUnchanged;foreground_unchanged=$result.ForegroundUnchanged;focus_events=$result.FocusEvents;moves=$result.Moves} | ConvertTo-Json -Compress
+} catch {
+    $reason = $_.Exception.GetBaseException().Message
+    if ($reason -eq 'desktop_missing') { Write-Output '{"error":"desktop_missing"}'; exit 20 }
+    if ($reason -eq 'wechat_unavailable') { Write-Output '{"error":"wechat_unavailable"}'; exit 22 }
+    Write-Output '{"error":"desktop_recovery_failed"}'
+    exit 21
 }
-"@
-$miniappPrefix = [string]([char]0x96c6) + [char]0x6362 + [char]0x793e
-if (-not $LaunchOnly) { [JhsMiniappWindow]::Close($miniappPrefix); Start-Sleep -Milliseconds 800 }
-Start-Process -FilePath $ShortcutPath

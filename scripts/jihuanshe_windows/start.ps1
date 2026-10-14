@@ -36,6 +36,7 @@ if ($Status) {
     $health = Invoke-RestMethod http://127.0.0.1:8791/health -Headers $headers
     $health | Add-Member -NotePropertyName supervisor_alive -NotePropertyValue ([bool](Get-BridgeSupervisor))
     $health | Add-Member -NotePropertyName miniapp_auto_open -NotePropertyValue ($config.autoOpen -eq $true)
+    $health | Add-Member -NotePropertyName miniapp_desktop_id -NotePropertyValue $config.desktopId
     $health | ConvertTo-Json
     exit
 }

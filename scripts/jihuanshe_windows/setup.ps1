@@ -41,6 +41,9 @@ $config.shortcut = (Resolve-Path -LiteralPath $ShortcutPath).Path
 $config.sshHost = $SshHost
 $config.appId = $AppId
 if (-not $config.ContainsKey('autoOpen')) { $config.autoOpen = $false }
-if ($EnableAutoOpen) { $config.autoOpen = $true }
+if ($EnableAutoOpen) {
+    if (-not $config.desktopId) { throw 'Bind a dedicated virtual desktop with configure-desktop.ps1 -Install -Bind first.' }
+    $config.autoOpen = $true
+}
 $config | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
 Write-Output 'Debugger prepared. Private config saved; the existing bridge token was preserved.'

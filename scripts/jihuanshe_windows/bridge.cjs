@@ -95,9 +95,9 @@ class Controller {
     this.config={...config,appId:config.appId||'wx64479c83c7630409'};
     const WebSocket=require(path.join(config.debuggerDir,'node_modules/ws'));
     this.cdp=new Cdp(WebSocket);this.contextId=null;this.debugger=null;this.debuggerReady=false;this.tunnel=null;
-    this.needsRuntime=false;this.lastBootstrap=0;
+    this.needsRuntime=false;this.lastBootstrap=0;this.nextOpen=0;this.openBackoff=30000;
     this.tail=Promise.resolve();this.queued=0;this.stopped=false;this.lastOpen=0;this.nextDebugger=0;this.debuggerBackoff=3000;this.nextTunnel=0;this.tunnelBackoff=3000;
-    this.state={ready:false,last_error:'needs_miniapp',recoveries:0,debugger_starts:0,tunnel_starts:0};
+    this.state={ready:false,last_error:'needs_miniapp',recoveries:0,debugger_starts:0,tunnel_starts:0,recovery_mode:config.autoOpen===true?'dedicated_desktop':'manual',recovery_attempts:0,last_recovery:null,next_recovery_at:null};
   }
   log(event){console.log(new Date().toISOString()+' '+event);}
   enqueue(operation) {
@@ -143,18 +143,42 @@ class Controller {
     }
     this.contextId=null;if(loginMissing)throw new BridgeError('needs_login');return false;
   }
+  async launchRecovery(bootstrap) {
+    return new Promise((resolve,reject)=>{
+      const child=spawn(this.config.pwshExe||'pwsh.exe',['-NoProfile','-NonInteractive','-File',path.join(__dirname,'recover-miniapp.ps1'),'-ShortcutPath',this.config.shortcut,'-TargetDesktopId',this.config.desktopId,...(bootstrap?['-LaunchOnly']:[])],{windowsHide:true,stdio:['ignore','pipe','ignore']});
+      let output='';child.stdout.on('data',chunk=>{if(output.length<8192)output+=chunk.toString();});
+      const timer=setTimeout(()=>{child.kill();reject(new BridgeError('desktop_recovery_failed'));},30000);
+      child.on('error',()=>{clearTimeout(timer);reject(new BridgeError('desktop_recovery_failed'));});
+      child.on('close',code=>{
+        clearTimeout(timer);
+        if(code!==0)return reject(new BridgeError(code===20?'desktop_missing':code===22?'wechat_unavailable':'desktop_recovery_failed'));
+        let result;try{result=JSON.parse(output);}catch{return reject(new BridgeError('desktop_recovery_failed'));}
+        if(result.placed!==true)return reject(new BridgeError('desktop_recovery_failed'));
+        resolve({desktop_unchanged:result.desktop_unchanged===true,foreground_unchanged:result.foreground_unchanged===true,focus_events:Number(result.focus_events)||0,moves:Number(result.moves)||0});
+      });
+    });
+  }
   async openMiniapp(bootstrap=false) {
     if(this.config.autoOpen!==true)throw new BridgeError('needs_miniapp');
+    if(typeof this.config.desktopId!=='string'||!(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i).test(this.config.desktopId)||/^0{8}-0{4}-0{4}-0{4}-0{12}$/.test(this.config.desktopId))throw new BridgeError('desktop_missing');
     if(!this.config.shortcut||!fs.existsSync(this.config.shortcut))throw new BridgeError('needs_miniapp');
-    if(Date.now()-(bootstrap?this.lastBootstrap:this.lastOpen)<30000)throw new BridgeError('needs_miniapp');
-    if(bootstrap){this.lastBootstrap=Date.now();this.log('runtime_start');}
-    else{this.lastOpen=Date.now();this.state.recoveries++;this.log('miniapp_recover');}
-    await new Promise((resolve,reject)=>{
-      const child=spawn('pwsh.exe',['-NoProfile','-NonInteractive','-File',path.join(__dirname,'recover-miniapp.ps1'),'-ShortcutPath',this.config.shortcut,...(bootstrap?['-LaunchOnly']:[])],{windowsHide:true,stdio:'ignore'});
-      const timer=setTimeout(()=>{child.kill();reject(new BridgeError('needs_miniapp'));},10000);
-      child.on('error',()=>{clearTimeout(timer);reject(new BridgeError('needs_miniapp'));});
-      child.on('close',code=>{clearTimeout(timer);code===0?resolve():reject(new BridgeError('needs_miniapp'));});
-    });
+    if(Date.now()<this.nextOpen)throw new BridgeError('recovery_backoff');
+    this.state.recovery_attempts++;
+    this.nextOpen=Date.now()+this.openBackoff;
+    this.state.next_recovery_at=new Date(this.nextOpen).toISOString();
+    this.log(bootstrap?'runtime_start':'miniapp_recover');
+    try {
+      const result=await this.launchRecovery(bootstrap);
+      this.state.recoveries++;this.state.last_recovery={at:new Date().toISOString(),...result};
+      this.openBackoff=30000;this.nextOpen=Date.now()+this.openBackoff;
+      this.state.next_recovery_at=new Date(this.nextOpen).toISOString();
+      this.log('miniapp_on_dedicated_desktop');
+    } catch(error) {
+      this.openBackoff=Math.min(this.openBackoff*2,300000);
+      this.nextOpen=Date.now()+this.openBackoff;
+      this.state.next_recovery_at=new Date(this.nextOpen).toISOString();
+      this.log('miniapp_recovery_failed');throw error;
+    }
   }
   async ensureContext(deadline, recover=true) {
     await this.ensureDebugger(deadline);

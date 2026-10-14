@@ -69,3 +69,27 @@ test('manual desktop mode never launches the mini-program',async()=>{
   const {Controller}=require('./bridge.cjs');
   for(const config of [{autoOpen:false},{}])await assert.rejects(Controller.prototype.openMiniapp.call({config}),error=>error.code==='needs_miniapp');
 });
+
+
+test('automatic recovery refuses missing or malformed desktop bindings before launching',async()=>{
+  const {Controller}=require('./bridge.cjs');
+  for(const desktopId of [undefined,'', '1', '00000000-0000-0000-0000-000000000000','x;start calc']) {
+    let launches=0;
+    const fake={config:{autoOpen:true,desktopId},launchRecovery:async()=>{launches++;}};
+    await assert.rejects(Controller.prototype.openMiniapp.call(fake),error=>error.code==='desktop_missing');
+    assert.equal(launches,0);
+  }
+});
+
+test('failed desktop recovery backs off and successful recovery records placement',async()=>{
+  const {Controller,BridgeError}=require('./bridge.cjs');let launches=0;
+  const fake={config:{autoOpen:true,desktopId:'11111111-2222-4333-8444-555555555555',shortcut:__filename},nextOpen:0,openBackoff:30000,state:{recoveries:0,recovery_attempts:0},log:()=>{},launchRecovery:async()=>{launches++;throw new BridgeError('desktop_missing');}};
+  await assert.rejects(Controller.prototype.openMiniapp.call(fake),error=>error.code==='desktop_missing');
+  assert.equal(fake.state.recoveries,0);assert.equal(fake.openBackoff,60000);
+  await assert.rejects(Controller.prototype.openMiniapp.call(fake),error=>error.code==='recovery_backoff');
+  assert.equal(launches,1);
+  fake.nextOpen=0;fake.launchRecovery=async()=>({desktop_unchanged:true,foreground_unchanged:true,focus_events:0,moves:1});
+  await Controller.prototype.openMiniapp.call(fake);
+  assert.equal(fake.state.recoveries,1);assert.equal(fake.state.last_recovery.desktop_unchanged,true);
+  assert.equal(fake.openBackoff,30000);
+});

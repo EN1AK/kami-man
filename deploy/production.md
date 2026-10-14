@@ -470,20 +470,44 @@ connection. `start.ps1 -Status` reports both supervision and mini-program
 auto-open mode. An explicit `start.ps1 -Stop` remains stopped across watchdog
 checks until `start.ps1` clears the stop request. The supervisor restarts a
 failed bridge with a 5–60 second backoff and removes only its own debugger/tunnel
-children. The bridge serializes queries, checks the session every 30 seconds and restarts
-failed debugger/tunnel processes. The local configuration now uses
-`autoOpen: false`, as requested, so tests and recovery never launch or activate
-the mini-program on the user's working desktop. The user opened it on a dedicated
-Windows virtual desktop; background requests do not switch desktops.
+children. The bridge serializes queries and checks the mini-program every 30 seconds.
 
-When `autoOpen` is false, a missing mini-program session requires manually
-reopening Jihuanshe on that dedicated desktop. The supervisor and SSH recovery
-continue to work. A debugger restart may also need this manual step. A virtual
-desktop alone is not treated as authorization to launch a window on the current
-desktop. For a separate machine where foreground windows are acceptable,
-`setup.ps1 -EnableAutoOpen` explicitly opts into shortcut recovery. That mode
-closes only the Jihuanshe mini-program window and may bring its replacement to
-the foreground. New private configurations default to manual opening.
+Dedicated virtual-desktop recovery uses the fixed GUID of the desktop containing
+Jihuanshe, not its desktop number. Keep WeChat signed in, move the mini-program
+to the desired Win+Tab desktop, then run:
+
+```powershell
+./scripts/jihuanshe_windows/configure-desktop.ps1 -Install -Bind
+./scripts/jihuanshe_windows/start.ps1 -Stop
+./scripts/jihuanshe_windows/start.ps1
+./scripts/jihuanshe_windows/start.ps1 -Status
+```
+
+The installer downloads MIT-licensed VirtualDesktopAccessor release
+`2024-12-16-windows11` into the ignored runtime directory; every load verifies
+its pinned SHA-256. This version targets Windows 11 24H2 build 26100.2605 and
+later compatible builds. `configure-desktop.ps1` without switches inspects the
+current desktop and mini-program window placement without opening windows.
+`-Bind` refuses ambiguous windows or an app pinned across all desktops.
+`-Disable` sets `autoOpen: false`; restart the bridge to apply configuration changes.
+
+When the mini-program disappears or its debug session is lost, recovery closes
+only Jihuanshe windows, launches its shortcut with a hidden startup request, and
+watches window events. New windows are moved to the bound desktop; placement is
+retried while Windows creates their application views. The helper never switches
+virtual desktops. It attempts to restore the previous foreground window if
+WeChat takes focus and the user has not supplied new input. A brief initial flash
+is still possible because placement happens after window creation; Windows and
+WeChat updates may change this behavior.
+
+A missing/deleted target desktop, unsupported desktop interface, pinned window,
+or missing WeChat process causes recovery to stop before launching. There is no
+fallback to the current desktop. Failed attempts back off up to five minutes.
+Login expiry still needs manual login. The desktop GUID and shared bridge token
+remain in the private runtime config; rebind after deleting/recreating the desktop.
+Health includes `recovery_mode`, `recovery_attempts`, `last_recovery` (placement,
+foreground and desktop observations), and `next_recovery_at`.
+
 
 Windows must remain online and awake with the user signed in and WeChat logged
 in. A lost WeChat/Jihuanshe login still needs manual login; the bridge does not
@@ -524,7 +548,10 @@ cleans up its orphaned helper processes. Closing the Jihuanshe window also
 reopened the mini-program and restored real prices. Login-triggered startup was registered
 and run through Task Scheduler; a full Windows reboot was not tested. On
 2026-10-13 the local configuration disabled automatic mini-program launching
-to avoid interrupting the working desktop.
+to avoid interrupting the working desktop. On 2026-10-14 it was enabled again
+with dedicated-desktop binding after verifying that a closed mini-program was
+automatically reopened on desktop 2 while desktop 1 remained active. A real
+server-side query returned seven card versions and live SR prices after recovery.
 
 To stop or disable logon startup:
 
@@ -546,8 +573,9 @@ version searches also returned their respective partitions. A foreign Japanese
 version ID requested under Simplified Chinese is rejected rather than relabeled.
 No-history/no-listing results remain unavailable. Python command/client tests and
 Node bridge tests cover scope isolation, two-step selection, numbered editions,
-accessory exclusion and manual desktop mode. Local automatic launching remains
-disabled; the user reopened Jihuanshe on a dedicated virtual desktop.
+accessory exclusion and manual desktop mode. Dedicated-desktop recovery is
+enabled only after binding an existing mini-program
+window. Manual mode still prevents all automatic launching.
 
 
 Yu-Gi-Oh fuzzy price selection (2026-10-13): `卡价` reuses the same
