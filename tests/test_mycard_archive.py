@@ -10,7 +10,7 @@ import zipfile
 
 import pytest
 from services.mycard_archive.replay import ObservedDeck, parse_replay, consolidate, MAX_PAYLOAD
-from services.mycard_archive.store import ArchiveStore
+from services.mycard_archive.store import ArchiveStore, ArchiveLimitReached
 from services.mycard_archive.presentation import deck_url, classify
 from services.mycard_archive.protocol import Credentials, CredentialsUnavailable, join_request, watch
 from services.mycard_archive.ranking import RankCache
@@ -93,6 +93,45 @@ def test_store_dedupe_and_bundle(tmp_path):
         manifest=json.loads(archive.read("manifest.json"))
         assert manifest["side_complete"] is False and manifest["normal_end"]==1
     assert store.recent("Alice")[0]["id"]==key
+
+
+def test_archive_quota_preserves_saved_replays(tmp_path):
+    store=ArchiveStore(tmp_path);key=begin(store)
+    first=replay()
+    digest=store.save_replay(key,first)
+    store.limit_bytes=store.usage_bytes()+store.reserve_bytes
+    with pytest.raises(ArchiveLimitReached):
+        store.save_replay(key,replay(start=101))
+    assert store.save_replay(key,first)==digest
+    assert len(store.replays(key))==1
+    assert (store.directory(key)/(digest+".yrp")).read_bytes()==first
+
+
+def test_archive_quota_rejects_export_without_partial_zip(tmp_path):
+    store=ArchiveStore(tmp_path);key=begin(store)
+    digest=store.save_replay(key,replay())
+    store.finish(key,True)
+    store.limit_bytes=store.usage_bytes()+store.reserve_bytes
+    with pytest.raises(ArchiveLimitReached):
+        store.bundle(key)
+    assert not (store.directory(key)/"archive.zip").exists()
+    assert (store.directory(key)/(digest+".yrp")).exists()
+    assert not list(tmp_path.parent.glob(".mycard-archive-*.zip.tmp"))
+
+
+def test_archive_quota_serializes_simultaneous_writes(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    store=ArchiveStore(tmp_path);key=begin(store)
+    store.limit_bytes=store.usage_bytes()+store.reserve_bytes+4096
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes=list(pool.map(lambda raw: capture_result(store,key,raw),[replay(start=101),replay(start=102)]))
+    assert sorted(outcomes)==["saved","stopped"]
+    assert len(store.replays(key))==1
+
+
+def capture_result(store,key,raw):
+    try:store.save_replay(key,raw);return "saved"
+    except ArchiveLimitReached:return "stopped"
 
 
 @pytest.mark.parametrize("raw",[b"unsupported replay",replay(names=("SomeoneElse","Bob"))])

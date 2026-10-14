@@ -23,7 +23,9 @@ driver=get_driver()
 
 def library():
     global _store
-    if _store is None:_store=ArchiveStore(ArchiveConfig.from_env().root)
+    if _store is None:
+        config=ArchiveConfig.from_env()
+        _store=ArchiveStore(config.root,config.archive_limit_bytes)
     return _store
 
 @driver.on_startup

@@ -4,13 +4,22 @@ from contextlib import contextmanager
 from dataclasses import asdict
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
+import stat
+import threading
 import time
 import uuid
 import zipfile
 from .replay import ObservedDeck,parse_replay,consolidate,MAX_PAYLOAD
+
+DEFAULT_ARCHIVE_LIMIT = 10 * 1024 ** 3
+
+class ArchiveLimitReached(ValueError):
+    """New archive evidence would exceed the configured retention budget."""
+
 
 
 def atomic_bytes(path,data):
@@ -21,7 +30,11 @@ def atomic_bytes(path,data):
     finally:temp.unlink(missing_ok=True)
 
 class ArchiveStore:
-    def __init__(self,root):
+    def __init__(self,root,limit_bytes=DEFAULT_ARCHIVE_LIMIT):
+        if type(limit_bytes) is not int or limit_bytes<=0:raise ValueError("归档容量上限无效")
+        self.limit_bytes=limit_bytes
+        self.reserve_bytes=min(64*1024**2,limit_bytes//20)
+        self.write_lock=threading.Lock()
         self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True)
         self.path=self.root/"archive.sqlite3";self.rules_path=self.root/"deck-rules.json"
         with self.connect() as db:
@@ -44,6 +57,36 @@ class ArchiveStore:
             CREATE INDEX IF NOT EXISTS observations_player ON observations(player,observed);
             """)
         if not self.rules_path.exists():atomic_bytes(self.rules_path,b'{"version":1,"rules":[]}\n')
+
+    @staticmethod
+    def allocated_bytes(path):
+        info=path.stat()
+        return info.st_blocks*512 if hasattr(info,"st_blocks") else info.st_size
+
+    def usage_bytes(self):
+        total=0
+        for base,dirs,files in os.walk(self.root,followlinks=False):
+            dirs[:]=[name for name in dirs if not (Path(base)/name).is_symlink()]
+            for name in files:
+                path=Path(base)/name
+                try:
+                    info=path.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(info.st_mode):
+                    total+=info.st_blocks*512 if hasattr(info,"st_blocks") else info.st_size
+        return total
+
+    @property
+    def capture_ceiling(self):
+        return self.limit_bytes-self.reserve_bytes
+
+    def capture_available(self):
+        return self.usage_bytes()<self.capture_ceiling
+
+    def require_capacity(self,incoming=0,replacing=0):
+        if self.usage_bytes()-replacing+incoming>self.capture_ceiling:
+            raise ArchiveLimitReached("MyCard 归档已达到容量上限，采集暂停；已有录像保留")
 
     @contextmanager
     def connect(self):
@@ -94,13 +137,17 @@ class ArchiveStore:
             metadata={"start_time":parsed.start_time,"decks":[asdict(deck) for deck in parsed.decks],"error":""}
         except ValueError as exc:
             metadata={"start_time":0,"decks":[],"error":str(exc)}
-        # Write the original even when its metadata cannot be interpreted.
-        atomic_bytes(directory/(digest+".yrp"),raw)
-        with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            ordinal=db.execute("SELECT COALESCE(MAX(ordinal),0)+1 FROM replays WHERE match_id=?",(match_id,)).fetchone()[0]
-            db.execute("INSERT OR IGNORE INTO replays(match_id,digest,ordinal,received,metadata) VALUES(?,?,?,?,?)",
-                       (match_id,digest,ordinal,time.time(),json.dumps(metadata,ensure_ascii=False)))
+        # Reserve space before the first write; duplicates never consume the quota twice.
+        target=directory/(digest+".yrp")
+        with self.write_lock:
+            if not target.exists():
+                self.require_capacity(((len(raw)+4095)//4096)*4096)
+                atomic_bytes(target,raw)
+            with self.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                ordinal=db.execute("SELECT COALESCE(MAX(ordinal),0)+1 FROM replays WHERE match_id=?",(match_id,)).fetchone()[0]
+                db.execute("INSERT OR IGNORE INTO replays(match_id,digest,ordinal,received,metadata) VALUES(?,?,?,?,?)",
+                           (match_id,digest,ordinal,time.time(),json.dumps(metadata,ensure_ascii=False)))
         if metadata["error"]:self.issue(match_id,"录像卡组提取失败："+metadata["error"])
         return digest
 
@@ -148,12 +195,17 @@ class ArchiveStore:
         if data["status"]=="active":raise ValueError("对局仍在采集中，结束后再导出")
         if not self.replays(match_id):raise ValueError("该对局没有收到录像")
         self.write_manifest(match_id)
-        directory=self.directory(match_id);output=directory/"archive.zip";temp=directory/(uuid.uuid4().hex+".zip.tmp")
+        directory=self.directory(match_id);output=directory/"archive.zip"
+        # Build outside the quota directory, then account for the finished ZIP atomically.
+        temp=self.root.parent/(".mycard-archive-"+uuid.uuid4().hex+".zip.tmp")
         try:
             with zipfile.ZipFile(temp,"w",zipfile.ZIP_DEFLATED) as zip_file:
                 for path in sorted(directory.iterdir()):
                     if path.name=="manifest.json" or path.suffix in {".ydk",".yrp"}:zip_file.write(path,path.name)
-            temp.replace(output)
+            with self.write_lock:
+                previous=self.allocated_bytes(output) if output.exists() else 0
+                self.require_capacity(self.allocated_bytes(temp),previous)
+                temp.replace(output)
         finally:temp.unlink(missing_ok=True)
         return output
 

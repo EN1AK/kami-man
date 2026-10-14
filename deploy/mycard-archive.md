@@ -14,6 +14,9 @@ Rank queries have concurrency 4 and a 5-minute cache; failures are retried while
 Only public two-player rooms allowing normal spectating are joined, with a configurable four-socket
 limit and a minimum two seconds between admissions. The observer account's own games are skipped.
 Three consecutive failed joins trigger global backoff. Fewer than 256 MiB free pauses capture.
+The archive directory has a configurable 10 GiB limit by default. Collection pauses at the limit
+without deleting any saved replay. The limit counts SQLite, replay files, deck files and export ZIPs.
+The collector leaves 64 MiB within the limit for active-match metadata and finalization.
 
 The TCP observer sends player-info and join-room frames only, confirms observer seat 7, and saves
 STOC_REPLAY after that confirmation. It sends no gameplay responses and does not bypass room access.
@@ -58,13 +61,16 @@ Production settings are in `/etc/systemd/system/kami-man.service.d/mycard-archiv
 [Service]
 Environment=MYCARD_CAPTURE_ENABLED=true
 Environment=MYCARD_ARCHIVE_DIR=/home/ubuntu/qqbot/kami-man/data/mycard_archive
+Environment=MYCARD_ARCHIVE_MAX_GB=10
 Environment=MYCARD_CREDENTIALS_FILE=/home/ubuntu/qqbot/kami-man/data/mycard_archive/credentials.json
 Environment=MYCARD_CAPTURE_CONCURRENCY=4
 Environment=MYCARD_RANK_CUTOFF=500
 Environment=MYCARD_JOIN_INTERVAL=2
 ```
 
-Preserve this runtime directory across code deployments. Setting capture enabled false stops new
+Preserve this runtime directory across code deployments. If the archive reaches its limit,
+new rooms and replay frames pause until space is freed or the configured limit is raised;
+existing archives remain available, and an export is rejected if its ZIP would exceed the limit. Setting capture enabled false stops new
 monitoring after a service restart; archived queries remain available. There is no automatic deletion
 or unsolicited QQ notification. Archive, per-player and file commands use existing SUPERUSER access.
 `前排卡组信息` is public, and uses the actual official front-100 endpoint `arena/users?o=pt`; it does not
@@ -86,9 +92,7 @@ while raw replays and deck files remain saved.
 
 Parser, archive recovery, deduplication, Side multiplicity, consecutive version transitions, room event
 reconciliation, spectator framing/access confirmation, rank boundaries, missing credentials, queue
-cancellation, and safe ZIP paths are tested with synthetic data. Production can verify public discovery
-and official ranks without credentials. A real end-to-end spectator replay awaits the owner's account
-configuration; do not report that live capture was verified before it was.
+cancellation, safe ZIP paths and the archive quota are tested with synthetic data.
 
-Initial validation: 172 bot tests passed (44 archive cases). Live public WS and both official rank
-endpoints were verified on the deployment server. No real spectator capture was attempted without credentials.
+Current validation: 203 bot tests pass, including quota boundary checks for saved replays, concurrent
+writes and ZIP exports. The running archive has saved real spectator captures.

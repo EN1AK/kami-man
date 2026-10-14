@@ -10,7 +10,7 @@ import aiohttp
 from nonebot import logger
 from .protocol import Credentials,CredentialsUnavailable,watch
 from .ranking import RankCache
-from .store import ArchiveStore
+from .store import ArchiveStore,ArchiveLimitReached,DEFAULT_ARCHIVE_LIMIT
 
 @dataclass(frozen=True)
 class ArchiveConfig:
@@ -24,6 +24,7 @@ class ArchiveConfig:
     port: int = 8911
     version: int = 0x1362
     join_interval: float = 2
+    archive_limit_bytes: int = DEFAULT_ARCHIVE_LIMIT
 
     @classmethod
     def from_env(cls):
@@ -34,8 +35,9 @@ class ArchiveConfig:
                    int(os.getenv("MYCARD_CAPTURE_CONCURRENCY","4")),int(os.getenv("MYCARD_RANK_CUTOFF","500")),
                    os.getenv("MYCARD_ROOM_WS","wss://tiramisu.moecube.com:8923/?filter=started"),
                    os.getenv("MYCARD_SPECTATOR_HOST","tiramisu.moecube.com"),int(os.getenv("MYCARD_SPECTATOR_PORT","8911")),
-                   int(os.getenv("MYCARD_SPECTATOR_VERSION","0x1362"),0),float(os.getenv("MYCARD_JOIN_INTERVAL","2")))
-        if not 1<=config.concurrency<=16 or not 1<=config.cutoff<=500 or not 0<=config.version<=65535 or not 1<=config.port<=65535 or config.join_interval<0.5:
+                   int(os.getenv("MYCARD_SPECTATOR_VERSION","0x1362"),0),float(os.getenv("MYCARD_JOIN_INTERVAL","2")),
+                   int(os.getenv("MYCARD_ARCHIVE_MAX_GB","10"))*1024**3)
+        if not 1<=config.concurrency<=16 or not 1<=config.cutoff<=500 or not 0<=config.version<=65535 or not 1<=config.port<=65535 or config.join_interval<0.5 or not 1<=config.archive_limit_bytes//(1024**3)<=1000:
             raise ValueError("MyCard 采集配置超出范围")
         return config
 
@@ -71,7 +73,7 @@ async def room_slot(semaphore,ended):
 
 class Collector:
     def __init__(self,config,*,store=None,watch_room=watch):
-        self.config=config;self.store=store or ArchiveStore(config.root);self.watch_room=watch_room
+        self.config=config;self.store=store or ArchiveStore(config.root,config.archive_limit_bytes);self.watch_room=watch_room
         self.rooms={};self.session=None;self.rank=None;self.credentials=None;self.ws_task=None
         self.closed=False;self.ws_connected=False;self.initialized=False;self.last_error="";self.excluded=0
         self.slots=asyncio.Semaphore(config.concurrency);self.join_lock=asyncio.Lock()
@@ -153,6 +155,10 @@ class Collector:
 
     async def identity(self,state):
         while not state.ended.is_set():
+            if not await asyncio.to_thread(self.store.capture_available):
+                self.error("MyCard 归档达到容量上限，录像采集暂停")
+                if await pause_or_end(state.ended,60):return None
+                continue
             if shutil.disk_usage(self.store.root).free<256*1024*1024:
                 self.error("可用磁盘空间不足，录像采集暂停")
                 if await pause_or_end(state.ended,60):return None
@@ -167,6 +173,10 @@ class Collector:
         try:
             qualifying=None
             while not state.ended.is_set():
+                if not await asyncio.to_thread(self.store.capture_available):
+                    self.error("MyCard 归档达到容量上限，录像采集暂停")
+                    if await pause_or_end(state.ended,60):return
+                    continue
                 try:qualifying,ranks=await self.rank.qualifying(state.players);break
                 except Exception:
                     self.error("玩家名次暂不可用，等待核实后再观战")
@@ -207,6 +217,10 @@ class Collector:
                             if normal_end or state.ended.is_set():break
                             await asyncio.to_thread(self.store.issue,match_id,"观战流中断，曾尝试重连")
                         except asyncio.CancelledError:raise
+                        except ArchiveLimitReached:
+                            self.error("MyCard 归档达到容量上限，录像采集暂停")
+                            await asyncio.to_thread(self.store.issue,match_id,"归档达到容量上限，未保存后续录像")
+                            break
                         except Exception as exc:
                             self.failed_joins+=1
                             if self.failed_joins>=3:self.cooldown_until=time.monotonic()+min(300,30*2**min(self.failed_joins-3,4))
@@ -226,12 +240,15 @@ class Collector:
 
     async def status(self):
         stats=await asyncio.to_thread(self.store.stats)
+        used=await asyncio.to_thread(self.store.usage_bytes)
+        limit=self.store.limit_bytes
+        quota=f"归档空间：{used/1024**3:.2f}/{limit/1024**3:.0f} GiB；{'已达上限，采集暂停' if used>=self.store.capture_ceiling else '额度正常'}"
         eligible=sum(state.match_id is not None and state.task is not None and not state.task.done() for state in self.rooms.values())
         pending="已配置" if self.config.credentials.exists() else "未配置，录像采集等待登录凭据"
         return (f"MyCard 前 {self.config.cutoff} 归档\n公开房间监听：{'已连接' if self.ws_connected else '重连中'}\n"
                 f"观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.config.concurrency}\n"
                 f"正常结束 {stats.get('complete',0)}；部分录像 {stats.get('partial',0)}；未收到录像 {stats.get('unavailable',0)}\n"
-                f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")
+                f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")
 
     async def close(self):
         self.closed=True
