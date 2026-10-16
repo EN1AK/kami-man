@@ -10,7 +10,7 @@ from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
 from services.mycard_api import get_bind_by_qq
 from services.mycard_archive.collector import ArchiveConfig,Collector
-from services.mycard_archive.presentation import deck_summary,moment
+from services.mycard_archive.presentation import deck_summary,moment,classify
 from services.mycard_archive.replay import ObservedDeck
 from services.mycard_archive.store import ArchiveStore
 from services.onebot_forward import make_forward_node
@@ -46,6 +46,7 @@ async def stop_archive():
     global _collector
     if _collector:await _collector.close();_collector=None
 
+rules_command=on_command("MyCard规则检查",aliases={"mycard规则检查"},permission=SUPERUSER,priority=5,block=True)
 status_command=on_command("MyCard采集状态",aliases={"mycard采集状态","MC采集状态"},permission=SUPERUSER,priority=5,block=True)
 player_deck=on_command("卡组查询",aliases={"MyCard卡组","mycard卡组"},permission=SUPERUSER,priority=5,block=True)
 deck_history=on_command("MyCard卡组历史",aliases={"mycard卡组历史"},permission=SUPERUSER,priority=5,block=True)
@@ -74,6 +75,16 @@ async def archive_status():
     text=await _collector.status() if _collector else "MyCard 采集未启用；已有归档仍可查询。"
     await status_command.finish(MessageSegment.text(text))
 
+@rules_command.handle()
+async def check_deck_rules():
+    from services.mycard_archive.naming import load_rules
+    try:
+        rules=await asyncio.to_thread(load_rules,library().rules_path)
+        text=f"命名规则正常：{len({rule['label'] for rule in rules})} 类，{len(rules)} 条规则。\n按主卡组识别，混合名称按投入张数排序；规则修改后查询即时生效。"
+    except (ValueError,OSError) as exc:
+        text="命名规则检查失败："+str(exc)
+    await rules_command.finish(MessageSegment.text(text))
+
 @player_deck.handle()
 async def query_deck(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
     try:
@@ -92,7 +103,10 @@ async def query_deck_history(bot:Bot,event:MessageEvent,args:Message=CommandArg(
     except (ValueError,sqlite3.Error,OSError):await deck_history.finish("请提供有效用户名；归档库暂不可用时请稍后重试。")
     text=f"{player}：共 {len(versions)} 个连续卡组版本（最近12个）"
     for i,version in list(enumerate(versions,1))[-12:][::-1]:
-        text+=f"\n版本{i}：主{len(version['main'])}/额{len(version['extra'])}/观测Side{len(version['side'])}，{moment(version['last_seen'])}，{version['observations']}场；归档 {version['match_id']}"
+        deck=ObservedDeck(version["player"],tuple(version["main"]),tuple(version["extra"]),tuple(version["side"]))
+        try:name=await asyncio.to_thread(classify,deck,library().rules_path)
+        except (ValueError,OSError):name="命名规则暂不可用"
+        text+=f"\n版本{i}：{name}，主{len(version['main'])}/额{len(version['extra'])}/观测Side{len(version['side'])}，{moment(version['last_seen'])}，{version['observations']}场；归档 {version['match_id']}"
     await reply_pages(bot,event,text)
 
 @replay_history.handle()

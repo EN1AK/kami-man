@@ -76,17 +76,45 @@ or unsolicited QQ notification. Archive, per-player and file commands use existi
 `前排卡组信息` is public, and uses the actual official front-100 endpoint `arena/users?o=pt`; it does not
 claim that endpoint contains the top 500. Help lists the complete command set.
 
-## Optional classification
+## Deck names and hot-reloaded mappings
 
-`data/mycard_archive/deck-rules.json` is read on each query. Example:
+The naming behavior follows the feature-card approach documented in
+[hikari-bot](https://github.com/ParseeX/hikari-bot/blob/5f85e1f397293c6bea9b44ae943c18af8eeec1c5/hikari_bot/services/mycard_archive/presentation.py).
+Its private runtime mapping is not published. Kami Man independently bundles 97 feature-card
+families in `services/mycard_archive/deck_names.json`, built from the server's local YGOPro CDB.
+No deck or observed card IDs are sent to an external classifier or language model.
+
+Only Main counts toward naming; Extra and observed Side do not trigger a label.
+Mixed labels are joined from least to most matching physical copies. Multiple rules for the same
+label union their matched cards, avoiding duplicate scores; equal scores keep rule order.
+Exactly 60 Main cards add a `60` prefix when recognized. Unknown decks show `未识别`.
+The bundled features are heuristics, not a guarantee of a deck's competitive identity.
+Generic hand traps are not included as standalone default naming families.
+
+Names appear in player summaries, deck history, front-100 summaries and the OURYGO link title.
+Queries name existing observations immediately; raw archive evidence and version identity stay intact.
+`MyCard规则检查` is an administrator command that validates the active rules and reports counts.
+
+`data/mycard_archive/deck-rules.json` is an optional override, reloaded on the next query.
+An empty rules list uses the bundled defaults. Custom rules replace bundled rules with the same label:
 
 ```json
-{"version":1,"rules":[{"name":"Example archetype","requires":{"89631139":2}}]}
+{"version":1,"rules":[{"label":"烙印","cards":[44362883,68468459],"match":"any"}]}
 ```
 
-Each rule requires all card IDs with at least the indicated copy count in Main+Extra. Matching labels
-combine; without rules the archive says unclassified. Invalid rules produce an explicit query failure,
-while raw replays and deck files remain saved.
+`match` supports `any` (default) and `all`. Legacy
+`{"name":"Example","requires":{"89631139":2}}` rules remain accepted for minimum Main copy counts.
+Set `"use_defaults":false` at the top level to use only custom rules.
+Invalid configuration produces an explicit query error, while replay capture continues.
+
+An optional `MYCARD_CARD_DB` points to a local YGOPro CDB for explicit same-name aliases.
+The default is the sibling `ygo-rag/data/cards.cdb`. Missing or unreadable catalogs fall back to
+exact rule card IDs. Adjacent unknown IDs are never guessed to be alternate artwork.
+Regenerate bundled mappings after reviewing a local catalog update with:
+
+```bash
+python scripts/build_mycard_deck_names.py --db /path/to/cards.cdb --out services/mycard_archive/deck_names.json
+```
 
 ## Validation
 
@@ -94,7 +122,7 @@ Parser, archive recovery, deduplication, Side multiplicity, consecutive version 
 reconciliation, spectator framing/access confirmation, rank boundaries, missing credentials, queue
 cancellation, safe ZIP paths and the archive quota are tested with synthetic data.
 
-Current validation: 208 bot tests pass, including quota boundary checks for saved replays, concurrent
+Current validation: 221 bot tests pass, including quota boundary checks for saved replays, concurrent
 writes and ZIP exports. The running archive has saved real spectator captures.
 
 
