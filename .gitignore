@@ -37,6 +37,7 @@ data/agent_usage.db*
 
 # MyCard recordings, decks, index and login credentials (server runtime only)
 data/mycard_archive/
+data/mycard_offload_stage/
 
 # Downloaded references and private WeChat bridge runtime
 /hikari-bot-main/
