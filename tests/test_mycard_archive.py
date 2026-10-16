@@ -119,10 +119,12 @@ def test_archive_quota_rejects_export_without_partial_zip(tmp_path):
     assert not list(tmp_path.parent.glob(".mycard-archive-*.zip.tmp"))
 
 
-def test_archive_quota_serializes_simultaneous_writes(tmp_path):
+def test_archive_quota_serializes_simultaneous_writes(tmp_path,monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     store=ArchiveStore(tmp_path);key=begin(store)
-    store.limit_bytes=store.usage_bytes()+store.reserve_bytes+4096
+    # SQLite WAL/SHM files may appear during concurrent reads; isolate the raw-file budget.
+    monkeypatch.setattr(store,"usage_bytes",lambda:sum(store.allocated_bytes(p) for p in tmp_path.rglob("*.yrp")))
+    store.limit_bytes=store.reserve_bytes+4096
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes=list(pool.map(lambda raw: capture_result(store,key,raw),[replay(start=101),replay(start=102)]))
     assert sorted(outcomes)==["saved","stopped"]
@@ -331,3 +333,108 @@ def test_observer_requires_confirmed_role_and_drains(kind):
             server.close();await server.wait_closed()
             await asyncio.gather(*tasks,return_exceptions=True)
     asyncio.run(scenario())
+
+
+def test_offload_verified_commit_keeps_deck_queries(tmp_path):
+    import tarfile
+    from services.mycard_archive.offload import ArchiveOffloader, digest
+    store=ArchiveStore(tmp_path/"archive")
+    key=begin(store,"finished");raw=replay()
+    raw_digest=store.save_replay(key,raw);store.finish(key,True)
+    active=begin(store,"active");store.save_replay(active,replay(start=102))
+    (store.root/"credentials.json").write_text('{"token":"not-for-backup"}')
+    manager=ArchiveOffloader(store,batch_bytes=1024*1024)
+    assert manager.prepare() is None
+    plan=manager.prepare(force=True)
+    assert set(plan["matches"])=={key}
+    archive=manager.stage/(plan["id"]+".tar")
+    assert digest(archive)==plan["sha256"]
+    import io
+    downloaded=io.BytesIO()
+    manager.fetch(plan["id"],downloaded)
+    assert hashlib.sha256(downloaded.getvalue()).hexdigest()==plan["sha256"]
+    with pytest.raises(ValueError):
+        manager.fetch("../outside",io.BytesIO())
+    with tarfile.open(archive) as tar:
+        names=tar.getnames()
+        assert all(name.startswith("matches/"+key+"/") for name in names)
+        assert not any("credentials" in name for name in names)
+        assert tar.extractfile("matches/"+key+"/"+raw_digest+".yrp").read()==raw
+        assert any(name.endswith("manifest.json") for name in names)
+        assert any(name.endswith(".ydk") for name in names)
+    assert manager.prepare(force=True)["id"]==plan["id"]
+    with pytest.raises(ValueError,match="校验值不匹配"):
+        manager.commit(plan["id"],"0"*64)
+    assert (store.directory(key)/(raw_digest+".yrp")).exists()
+    assert manager.commit(plan["id"],plan["sha256"])>0
+    assert not (store.directory(key)/(raw_digest+".yrp")).exists()
+    assert (store.directory(key)/"manifest.json").exists()
+    assert (store.directory(key)/"merged-player-1.ydk").exists()
+    assert store.latest("Alice")["main"]==[1,1,2]
+    assert store.offloaded(key)["batch_id"]==plan["id"]
+    assert store.offload_count()==1
+    with pytest.raises(ValueError,match="home"):
+        store.bundle(key)
+    assert manager.commit(plan["id"],plan["sha256"])==0
+
+
+def test_offload_rejects_changed_raw_and_unsafe_plan(tmp_path):
+    from services.mycard_archive.offload import ArchiveOffloader
+    store=ArchiveStore(tmp_path/"archive");key=begin(store)
+    raw_digest=store.save_replay(key,replay());store.finish(key,True)
+    manager=ArchiveOffloader(store)
+    plan=manager.prepare(force=True)
+    raw_path=store.directory(key)/(raw_digest+".yrp")
+    original=raw_path.read_bytes();raw_path.write_bytes(b"changed")
+    with pytest.raises(ValueError,match="发生变化"):
+        manager.commit(plan["id"],plan["sha256"])
+    assert raw_path.read_bytes()==b"changed" and store.offloaded(key) is None
+    raw_path.write_bytes(original)
+    plan["matches"][key][0]["name"]="../../outside"
+    manager.plan_path.write_text(json.dumps(plan))
+    with pytest.raises(ValueError,match="文件名"):
+        manager.commit(plan["id"],plan["sha256"])
+    assert raw_path.exists()
+
+
+def test_offload_retries_cleanup_after_index_commit(tmp_path,monkeypatch):
+    from pathlib import Path
+    from services.mycard_archive.offload import ArchiveOffloader
+    store=ArchiveStore(tmp_path/"archive");key=begin(store)
+    raw_digest=store.save_replay(key,replay());store.finish(key,True)
+    manager=ArchiveOffloader(store);plan=manager.prepare(force=True)
+    raw_path=store.directory(key)/(raw_digest+".yrp")
+    real_unlink=Path.unlink
+    def fail_raw(path,*args,**kwargs):
+        if path==raw_path:raise OSError("simulated interruption")
+        return real_unlink(path,*args,**kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path,"unlink",fail_raw)
+        with pytest.raises(OSError):
+            manager.commit(plan["id"],plan["sha256"])
+    assert raw_path.exists() and manager.plan_path.exists()
+    assert store.offloaded(key)["batch_id"]==plan["id"]
+    assert manager.prepare(force=True)["id"]==plan["id"]
+    manager.commit(plan["id"],plan["sha256"])
+    assert not raw_path.exists() and not manager.plan_path.exists()
+
+
+def test_home_transfer_key_command_allowlist():
+    import runpy
+    from pathlib import Path
+    command=runpy.run_path(str(Path(__file__).parents[1]/"scripts/mycard_offload_ssh.py"))["allowed_command"]
+    assert command("mycard-offload prepare")==["prepare"]
+    assert command("mycard-offload status")==["status"]
+    assert command("mycard-offload fetch batch")==["fetch","batch"]
+    assert command("mycard-offload commit batch sha")==["commit","batch","sha"]
+    for text in ["sh", "mycard-offload prepare --force", "mycard-offload --root /tmp prepare", "cat /etc/passwd"]:
+        with pytest.raises(ValueError):command(text)
+
+
+def test_bundle_never_exports_without_recorded_raw(tmp_path):
+    store=ArchiveStore(tmp_path);key=begin(store)
+    raw_digest=store.save_replay(key,replay());store.finish(key,True)
+    (store.directory(key)/(raw_digest+".yrp")).unlink()
+    with pytest.raises(ValueError,match="原始录像"):
+        store.bundle(key)
+    assert not (store.directory(key)/"archive.zip").exists()

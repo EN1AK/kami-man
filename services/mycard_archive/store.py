@@ -55,6 +55,10 @@ class ArchiveStore:
                 observed REAL NOT NULL, deck TEXT NOT NULL,
                 PRIMARY KEY(match_id,player));
             CREATE INDEX IF NOT EXISTS observations_player ON observations(player,observed);
+            CREATE TABLE IF NOT EXISTS offloads (
+                match_id TEXT PRIMARY KEY REFERENCES matches(id),
+                batch_id TEXT NOT NULL, transferred REAL NOT NULL);
+            CREATE INDEX IF NOT EXISTS offloads_batch ON offloads(batch_id);
             """)
         if not self.rules_path.exists():atomic_bytes(self.rules_path,b'{"version":1,"rules":[]}\n')
 
@@ -190,10 +194,24 @@ class ArchiveStore:
         data["side_complete"]=False;data["first_seen_is_monitor_time"]=True
         atomic_bytes(self.directory(match_id)/"manifest.json",json.dumps(data,ensure_ascii=False,indent=2).encode("utf-8"))
 
+    def offloaded(self,match_id):
+        with self.connect() as db:
+            row=db.execute("SELECT batch_id,transferred FROM offloads WHERE match_id=?",(self.check_id(match_id),)).fetchone()
+        return dict(row) if row else None
+
+    def offload_count(self):
+        with self.connect() as db:return db.execute("SELECT COUNT(*) FROM offloads").fetchone()[0]
+
     def bundle(self,match_id):
         data=self.match(match_id)
         if data["status"]=="active":raise ValueError("对局仍在采集中，结束后再导出")
-        if not self.replays(match_id):raise ValueError("该对局没有收到录像")
+        offload=self.offloaded(match_id)
+        if offload:
+            raise ValueError("该录像已转存到 home 主机 D:\\file\\mycard_archive\\batches\\"
+                             +offload["batch_id"]+".tar，请在 home 查看。")
+        rounds=self.replays(match_id)
+        if not rounds:raise ValueError("该对局没有收到录像")
+        expected_raw={row["filename"] for row in rounds}
         self.write_manifest(match_id)
         directory=self.directory(match_id);output=directory/"archive.zip"
         # Build outside the quota directory, then account for the finished ZIP atomically.
@@ -202,6 +220,8 @@ class ArchiveStore:
             with zipfile.ZipFile(temp,"w",zipfile.ZIP_DEFLATED) as zip_file:
                 for path in sorted(directory.iterdir()):
                     if path.name=="manifest.json" or path.suffix in {".ydk",".yrp"}:zip_file.write(path,path.name)
+                if not expected_raw.issubset(zip_file.namelist()):
+                    raise ValueError("原始录像已转存或暂不可用，请在 home 主机查看归档。")
             with self.write_lock:
                 previous=self.allocated_bytes(output) if output.exists() else 0
                 self.require_capacity(self.allocated_bytes(temp),previous)

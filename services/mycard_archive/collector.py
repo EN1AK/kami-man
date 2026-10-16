@@ -242,13 +242,14 @@ class Collector:
         stats=await asyncio.to_thread(self.store.stats)
         used=await asyncio.to_thread(self.store.usage_bytes)
         limit=self.store.limit_bytes
+        offloaded=await asyncio.to_thread(self.store.offload_count)
         quota=f"归档空间：{used/1024**3:.2f}/{limit/1024**3:.0f} GiB；{'已达上限，采集暂停' if used>=self.store.capture_ceiling else '额度正常'}"
         eligible=sum(state.match_id is not None and state.task is not None and not state.task.done() for state in self.rooms.values())
         pending="已配置" if self.config.credentials.exists() else "未配置，录像采集等待登录凭据"
         return (f"MyCard 前 {self.config.cutoff} 归档\n公开房间监听：{'已连接' if self.ws_connected else '重连中'}\n"
                 f"观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.config.concurrency}\n"
                 f"正常结束 {stats.get('complete',0)}；部分录像 {stats.get('partial',0)}；未收到录像 {stats.get('unavailable',0)}\n"
-                f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")
+                f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}；home 已转存 {offloaded} 场\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")
 
     async def close(self):
         self.closed=True

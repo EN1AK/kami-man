@@ -94,5 +94,45 @@ Parser, archive recovery, deduplication, Side multiplicity, consecutive version 
 reconciliation, spectator framing/access confirmation, rank boundaries, missing credentials, queue
 cancellation, safe ZIP paths and the archive quota are tested with synthetic data.
 
-Current validation: 203 bot tests pass, including quota boundary checks for saved replays, concurrent
+Current validation: 208 bot tests pass, including quota boundary checks for saved replays, concurrent
 writes and ZIP exports. The running archive has saved real spectator captures.
+
+
+## Automatic transfer to the home host
+
+The home Windows machine stores cold replay evidence in
+`D:\file\mycard_archive\batches\<batch-id>.tar`.
+The `KamiMan-MyCard-Offload` scheduled task runs as SYSTEM at startup and every five minutes.
+It uses Git Bash and a dedicated SSH key under `C:\ProgramData\KamiMan\MyCardOffload`.
+The corresponding server authorized key is restricted to
+`scripts/mycard_offload_ssh.py`: prepare, fetch, commit and status only; it cannot open a shell.
+
+When local usage approaches the existing 10 GiB cap (one MiB before the capture ceiling),
+the server packages up to 512 MiB of finished matches per batch. Active matches are excluded.
+Each tar contains original YRP files, YDKs and match manifests; account credentials are excluded.
+Home verifies the expected byte count and SHA-256, atomically renames the downloaded file and
+writes a checksum sidecar before acknowledging the transfer. Only then does the server remove
+the transferred YRP files and cached ZIPs. The SQLite index, deck observations, manifests and
+YDKs stay on the server, so deck queries and history remain available.
+
+Old replay downloads in QQ report the home archive path. They are no longer reconstructed
+or served by QQ. Open or extract the tar on home to view the original evidence.
+A failed copy, offline home, full D drive or checksum mismatch leaves the server evidence intact.
+Capture still pauses at its local cap until verified transfer frees space.
+
+Runtime files:
+- Home script: `D:\file\mycard_archive\offload.sh`
+- Home log: `D:\file\mycard_archive\offload.log`
+- Home checksum: `<batch-id>.tar.sha256`
+- Server pending batch: `data/mycard_offload_stage/pending.json`
+- Server transfer spool: `data/mycard_offload_stage/<batch-id>.tar`
+
+The pending batch is reused after interruption, including after home has downloaded it but
+before the server has acknowledged cleanup. Server confirmation and cleanup are idempotent.
+Staging space is outside the live archive quota and holds at most one batch; packaging requires
+an additional 256 MiB of free disk space. The local index and retained metadata still count
+toward the 10 GiB limit.
+
+To reinstall the home schedule after provisioning its key and trusted server host key, copy the
+versioned shell script to the home script path and run
+`scripts/install_mycard_home_task.ps1` on home. The task never wakes or unlocks the machine.
