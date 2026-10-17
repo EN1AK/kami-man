@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
@@ -103,7 +103,32 @@ async def query_ygo_rag_agent(
         response.raise_for_status()
         data = response.json()
 
-    return parse_agent_response(data)
+    return _chat_ready_response(parse_agent_response(data))
+
+
+def _chat_ready_response(response: YgoRagAgentResponse) -> YgoRagAgentResponse:
+    basic={"web_search","read_webpage","current_time","calculate","finish"}
+    if not response.tool_blocks or any(block.tool not in basic for block in response.tool_blocks):
+        return response
+    answer=response.answer
+    sources={}
+    from urllib.parse import urlsplit
+    for block in response.tool_blocks:
+        if not block.ok or block.tool not in {"web_search","read_webpage"}:continue
+        for source in block.result.get("sources",[]):
+            if not isinstance(source,dict):continue
+            url=str(source.get("url") or "")
+            try:parsed=urlsplit(url)
+            except ValueError:continue
+            if parsed.scheme in {"http","https"} and parsed.hostname and not parsed.username:
+                sources.setdefault(url,str(source.get("title") or url)[:120])
+    missing=[] if any(url in answer for url in sources) else list(sources.items())[:3]
+    if missing:answer+="\n\n参考来源：\n"+"\n".join(title+"\n"+url for url,title in missing)
+    warnings=list(response.warnings)
+    if response.exhausted:warnings.append("本次已达到工具轮次上限，回答可能不完整。")
+    if warnings:answer+="\n\n提示："+"；".join(dict.fromkeys(warnings))
+    # The QQ conversation path displays ordinary tool answers as normal chat, not a trace forward.
+    return replace(response,answer=answer,tool_blocks=[])
 
 
 def parse_agent_response(data: dict[str, Any]) -> YgoRagAgentResponse:

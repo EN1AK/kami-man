@@ -75,6 +75,11 @@ def _extract_nested_structured_texts(result: dict[str, Any]) -> list[str]:
 
 def _extract_tool_fallback_text(block: AgentToolBlock) -> str:
     result = block.result
+    if block.tool in {"web_search","read_webpage"}:
+        lines=[]
+        for source in result.get("sources",[])[:5]:
+            if isinstance(source,dict):lines.append(str(source.get("title") or "")+"\n"+str(source.get("url") or ""))
+        return "网页来源：\n"+"\n".join(lines) if lines else block.summary
     if block.tool == "rift_rules":
         lines=[str(result.get("answer") or "")]
         sources=result.get("sources",[])
