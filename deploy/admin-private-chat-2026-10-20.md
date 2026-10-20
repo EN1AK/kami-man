@@ -1,0 +1,10 @@
+# Administrator private-chat entry (2026-10-20)
+
+Configured robot superusers may directly message the bot without an @ mention. This chat entry checks administrator status both in its matcher and handler, and the shared dispatcher rejects unauthorized private events before quota, state or model calls. Existing higher-priority commands retain their handlers.
+
+Ordinary text uses the original persona with existing natural-length/segmented delivery. Explicit professional prefixes use the unchanged Agent. A single attached image uses the existing card-translation path and returns the source image. Structured professional output is sent as private messages rather than group-forward API calls.
+
+Private sessions use qq:<bot>:private:user:<user>, with separate :persona and :professional namespaces. The backend rejects a private session claiming a group or supplying learned group style/expressions. Private chat is not sampled for group learning. Clear only targets this private scope and cannot clear group sessions. Group-learning control commands in private direct users to the enabled group instead of retrieving its records.
+
+Private meme selection uses the existing raster library but a separate data/private_memes.db for recipient-scoped counters, preserving the same probability/cooldown/dedup limits without sharing group counters. Runtime data is ignored by Git. The original persona asset, professional tools, group sampling scope and random-chat behavior remain unchanged.
+Validation: bot 343 passed; backend 504 passed (847 total). Production plugin loaded, both services active, QQ connection established, no startup tracebacks. A synthetic administrator private event traversed the production entry and real persona API and returned a reply; an unprivileged synthetic private event produced no reply. The fake transport sent no QQ messages. Synthetic history was cleared and local test state used temporary databases. Backup: /home/ubuntu/qqbot/admin-private-chat-48d_xf5e. Original persona, group random-chat code, professional Agent and session implementation hashes unchanged.

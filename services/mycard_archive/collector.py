@@ -1,6 +1,7 @@
 """Bounded background room discovery, top-rank admission and replay collection."""
 import asyncio
 from contextlib import asynccontextmanager
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass,field
 import os
 from pathlib import Path
@@ -78,6 +79,24 @@ class Collector:
         self.closed=False;self.ws_connected=False;self.initialized=False;self.last_error="";self.excluded=0
         self.slots=asyncio.Semaphore(config.concurrency);self.join_lock=asyncio.Lock()
         self.next_join=0.;self.cooldown_until=0.;self.failed_joins=0
+        # Room discovery must not flood asyncio's shared pool with full-tree scans.
+        self.capacity_executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix="mycard-capacity")
+        self.capacity_task=None;self.capacity_checked_at=None;self.capacity_cached=False
+
+    async def _scan_capacity(self):
+        available=await asyncio.get_running_loop().run_in_executor(self.capacity_executor,self.store.capture_available)
+        self.capacity_cached=available;self.capacity_checked_at=time.monotonic()
+        return available
+
+    async def capacity_available(self):
+        # Advisory admission only. ArchiveStore.require_capacity still enforces
+        # the exact hard limit under its write lock before storing evidence.
+        if self.capacity_checked_at is not None and time.monotonic()-self.capacity_checked_at<5:
+            return self.capacity_cached
+        if self.capacity_task is None or self.capacity_task.done():
+            self.capacity_task=asyncio.create_task(self._scan_capacity(),name="mycard-capacity-scan")
+        # One cancelled room must not cancel the scan shared with other rooms.
+        return await asyncio.shield(self.capacity_task)
 
     def error(self,message):
         if message!=self.last_error:logger.warning("[mycard_archive] "+message)
@@ -155,7 +174,7 @@ class Collector:
 
     async def identity(self,state):
         while not state.ended.is_set():
-            if not await asyncio.to_thread(self.store.capture_available):
+            if not await self.capacity_available():
                 self.error("MyCard 归档达到容量上限，录像采集暂停")
                 if await pause_or_end(state.ended,60):return None
                 continue
@@ -173,7 +192,7 @@ class Collector:
         try:
             qualifying=None
             while not state.ended.is_set():
-                if not await asyncio.to_thread(self.store.capture_available):
+                if not await self.capacity_available():
                     self.error("MyCard 归档达到容量上限，录像采集暂停")
                     if await pause_or_end(state.ended,60):return
                     continue
@@ -255,8 +274,10 @@ class Collector:
         self.closed=True
         tasks=[state.task for state in self.rooms.values() if state.task]
         if self.ws_task:tasks.append(self.ws_task)
+        if self.capacity_task:tasks.append(self.capacity_task)
         for task in tasks:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
         if self.rank:await self.rank.close()
         if self.session:await self.session.close()
         self.rooms.clear()
+        self.capacity_executor.shutdown(wait=False,cancel_futures=True)

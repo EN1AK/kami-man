@@ -1,0 +1,10 @@
+# Private Aemeath persona (2026-10-20)
+
+Administrator private persona chat uses the original 小爱人格提示词.docx from shirachino/astrbot-persona-prompts, wuwa-aemeath, revision 869d6793b93a756a410f00da44852f8b774e48f1. The 3481-character extracted text is stored independently at /home/ubuntu/qqbot/ygo-rag/personas/wuwa-aemeath/persona.txt, alongside source.docx and provenance.json. Extraction joins original Word body paragraph text with LF and makes no wording substitutions.
+
+Private personality uses the loader rag_agent/private_persona.py (optional PRIVATE_CHAT_PERSONA_FILE override). Missing/empty/oversized private assets fail instead of silently selecting the group persona. The original runtime JSON, no-tools, reference isolation, natural-length and segmented-send behavior stays in place. The source persona itself prefers brief chat; runtime allows expansion when requested.
+
+The customized group Big Fish persona remains at personas/deepseek-group/persona.txt and is not changed. Group mentions and random chatter continue using that file; professional Agent prompts and tools stay unchanged.
+
+Private Aemeath casual history uses <private session>:persona:aemeath rather than the previous :persona key. Old Big Fish private turns are retained but not read by Aemeath. Clear removes both private casual generations plus the private professional and legacy base key, without touching group histories. Private chats still do not import learned group style or enter group sampling.
+Validation: 512 backend tests passed. Live synthetic private API identified itself as 爱弥斯/小爱. A synthetic legacy Big Fish turn remained in the old namespace and the new Aemeath turn was written only to :persona:aemeath; clear then removed both. Professional fixed-trigger routing remained professional. Original customized group persona and group/private-independent professional files matched five pre-deployment hashes. Both services active and one QQ connection established. No QQ test messages sent. Backup: /home/ubuntu/qqbot/private-aemeath-persona-7is6hc5f.

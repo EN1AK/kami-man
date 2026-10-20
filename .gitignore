@@ -43,3 +43,13 @@ data/mycard_offload_stage/
 /hikari-bot-main/
 **/jhs-windows-poc/
 **/WMPFDebugger-main/
+
+# Group style samples and proactive chat counters (runtime only)
+data/group_chat.db*
+/data/group_memes/
+
+# Scoped mention route fingerprints (runtime only)
+data/mention_routes.db*
+
+# Private-chat meme counters (runtime only)
+data/private_memes.db*

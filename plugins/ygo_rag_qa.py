@@ -8,18 +8,21 @@ from services.ygo_rag_agent_api import (
 )
 from services.ygo_rag_agent_messages import build_rag_agent_message_texts
 from services.ygo_rag_messages import extract_rag_question
+from services.group_chat_commands import parse_group_control
 from services.ygo_rag_translation_messages import extract_translation_request
 
 
 async def is_group_bot_mention(bot: Bot, event: MessageEvent) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
-    mentioned, _ = extract_rag_question(
+    mentioned, question = extract_rag_question(
         event.message,
         str(bot.self_id),
         plain_text=event.get_plaintext(),
         to_me=event.to_me,
     )
+    if mentioned and parse_group_control(question):
+        return False
     if mentioned:
         _, is_translation_command, _ = extract_translation_request(
             event.message,
@@ -83,7 +86,7 @@ async def handle_rag_qa(bot: Bot, event: MessageEvent):
         plain_text=event.get_plaintext(),
         to_me=event.to_me,
     )
-    if not mentioned:
+    if not mentioned or parse_group_control(question):
         return
     _, is_translation_command, _ = extract_translation_request(
         event.message,

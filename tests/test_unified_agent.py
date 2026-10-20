@@ -10,13 +10,13 @@ from test_rift_rag_qa import FakeBot,make_group_event
 
 def response(blocks=None):
     return YgoRagAgentResponse(answer="你好",warnings=[],exhausted=False,tool_blocks=blocks or [])
-def test_chat_uses_isolated_session_and_plain_reply(monkeypatch):
+def test_professional_uses_isolated_session_and_plain_reply(monkeypatch):
     query=AsyncMock(return_value=response())
     monkeypatch.setattr(unified,"query_ygo_rag_agent",query)
     bot=FakeBot();event=make_group_event("你好")
     asyncio.run(unified.handle_question(bot,event,"你好"))
     assert str(bot.sent[0])=="你好" and bot.forward_calls==[]
-    assert query.call_args.kwargs["session_id"]=="qq:12345:group:67890:user:111"
+    assert query.call_args.kwargs["session_id"]=="qq:12345:group:67890:user:111:professional"
     other=SimpleNamespace(group_id=67891,user_id=111)
     assert unified.session_key(bot,event)!=unified.session_key(bot,other)
     other.user_id=112;other.group_id=67890
@@ -64,6 +64,10 @@ def isolated_usage(monkeypatch,tmp_path):
     from services.agent_usage import UsageStore
     monkeypatch.setattr(unified,"usage_store",UsageStore(tmp_path/"usage.db"))
     monkeypatch.setattr(unified,"is_exempt",lambda uid:str(uid)=="2954452539")
+    from services.mention_state import MentionState
+    monkeypatch.setattr(unified,"route_state",MentionState(tmp_path/"routes.db"))
+    monkeypatch.setattr(unified,"resolve_route",AsyncMock(return_value="professional"))
+    monkeypatch.setattr(unified,"clear_sessions",AsyncMock())
 
 
 def test_quota_blocks_31st_across_groups(monkeypatch):
@@ -104,7 +108,63 @@ def test_usage_commands_and_clear_are_free_and_stats_are_private(monkeypatch):
         event.user_id=2954452539
         await unified.handle_question(bot,event,"用量统计")
     asyncio.run(run())
-    assert query.await_count==1
+    assert query.await_count==0
     assert unified.usage_store.personal(111)[1]==0
     assert any("仅限管理员" in str(x) for x in bot.sent)
     assert "使用人数" in str(bot.sent[-1])
+
+
+def test_card_image_only_uses_vision_and_shared_quota(monkeypatch):
+    from nonebot.adapters.onebot.v11 import MessageSegment
+    from plugins.ygo_rag_qa import handle_rag_qa
+    vision = AsyncMock(return_value=SimpleNamespace(original_image="base64://test-card", translation="中文卡名：测试卡\n效果：抽一张卡。"))
+    agent = AsyncMock()
+    monkeypatch.setattr(unified, "translate_card_image", vision)
+    monkeypatch.setattr(unified, "query_ygo_rag_agent", agent)
+    event = make_group_event("", with_at=True)
+    event.message += MessageSegment.image("https://example.com/card.jpg")
+    bot = FakeBot()
+    asyncio.run(handle_rag_qa(bot, event))
+    assert vision.await_count == 1 and agent.await_count == 0
+    assert "中文卡名：测试卡" in str(bot.sent[0])
+    assert unified.usage_store.personal(111)[1] == 1
+
+
+def test_translation_command_with_image_uses_vision(monkeypatch):
+    from nonebot.adapters.onebot.v11 import MessageSegment
+    from plugins.ygo_rag_translate import handle_ygo_rag_translate
+    vision = AsyncMock(return_value=SimpleNamespace(original_image="base64://test-card", translation="中文卡名：测试卡\n效果：测试"))
+    monkeypatch.setattr(unified, "translate_card_image", vision)
+    event = make_group_event("@神人 翻译 ")
+    event.message += MessageSegment.image("https://example.com/card.jpg")
+    asyncio.run(handle_ygo_rag_translate(FakeBot(), event))
+    assert vision.await_count == 1
+
+
+def test_unreadable_card_refunds_and_multiple_images_are_free(monkeypatch):
+    from nonebot.adapters.onebot.v11 import MessageSegment
+    vision = AsyncMock(side_effect=unified.CardImageError("请重新发送清晰卡图。"))
+    monkeypatch.setattr(unified, "translate_card_image", vision)
+    event = make_group_event("", with_at=True)
+    event.message += MessageSegment.image("https://example.com/card.jpg")
+    bot = FakeBot()
+    asyncio.run(unified.handle_question(bot, event, ""))
+    assert unified.usage_store.personal(111)[1:] == (0, 1)
+    assert "清晰卡图" in str(bot.sent[-1])
+    event.message += MessageSegment.image("https://example.com/second.jpg")
+    asyncio.run(unified.handle_question(bot, event, ""))
+    assert vision.await_count == 1
+    assert "每次发送一张" in str(bot.sent[-1])
+
+
+def test_card_image_obeys_daily_limit(monkeypatch):
+    from nonebot.adapters.onebot.v11 import MessageSegment
+    vision = AsyncMock()
+    monkeypatch.setattr(unified, "translate_card_image", vision)
+    for _ in range(unified.DAILY_LIMIT):
+        unified.usage_store.reserve(111)
+    event = make_group_event("", with_at=True)
+    event.message += MessageSegment.image("https://example.com/card.jpg")
+    bot = FakeBot()
+    asyncio.run(unified.handle_question(bot, event, ""))
+    assert vision.await_count == 0 and "额度已用完" in str(bot.sent[-1])
