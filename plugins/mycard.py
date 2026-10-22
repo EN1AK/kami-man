@@ -8,8 +8,9 @@ from io import BytesIO
 import matplotlib.pyplot as plt
 import pytz
 from matplotlib.ticker import MaxNLocator
-from nonebot import get_bot, on_command, on_regex
+from nonebot import get_bot, on_command, on_regex, on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent, MessageSegment
+from nonebot.rule import Rule
 from nonebot.params import CommandArg, EventMessage
 from nonebot_plugin_apscheduler import scheduler
 
@@ -54,14 +55,21 @@ def get_at_targets(message: Message, bot_id: str) -> list[str]:
     ]
 
 
-mycard_query = on_regex(r".*历史.*", priority=5)
+HISTORY_PATTERN = r"^(?:(\d{2,4})年)?(?:(1[0-2]|[1-9])月)?历史(?:\s+(.+))?$"
+
+
+async def is_history_query(event: MessageEvent) -> bool:
+    # Match the whole plaintext command, preserving support for at-message segments.
+    return re.fullmatch(HISTORY_PATTERN, event.get_plaintext().strip()) is not None
+
+
+mycard_query = on_message(rule=Rule(is_history_query), priority=5, block=True)
 
 
 @mycard_query.handle()
 async def handle_history(bot: Bot, event: MessageEvent, message: Message = EventMessage()):
     plain_text = event.get_plaintext().strip()
-    pattern = r"^(?:(\d{2,4})年)?(?:(1[0-2]|[1-9])月)?历史(?:\s+(.+))?$"
-    res = re.match(pattern, plain_text)
+    res = re.fullmatch(HISTORY_PATTERN, plain_text)
     if not res:
         return
 
