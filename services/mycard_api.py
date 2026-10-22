@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 import os
 from datetime import datetime
 
@@ -17,14 +19,27 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 async def api_get(path: str, params: dict) -> dict | None:
     url = BASE_URL + path
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, timeout=10) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return None
-    except Exception:
-        return None
+    logger = logging.getLogger(__name__)
+    timeout = aiohttp.ClientTimeout(total=30, connect=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for attempt in range(2):
+            try:
+                async with session.get(url, params=params) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if isinstance(data, dict):
+                            return data
+                        logger.warning("MyCard endpoint=%s returned unexpected JSON type", path)
+                        return None
+                    logger.warning("MyCard endpoint=%s status=%s attempt=%s", path, resp.status, attempt + 1)
+                    if resp.status != 429 and resp.status < 500:
+                        return None
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+                # Do not log parameters, response bodies, or exception text containing URLs.
+                logger.warning("MyCard endpoint=%s error=%s attempt=%s", path, type(exc).__name__, attempt + 1)
+            if attempt == 0:
+                await asyncio.sleep(0.5)
+    return None
 
 
 def read_json(path: str, default):
