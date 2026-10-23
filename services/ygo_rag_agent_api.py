@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
+from services.chat_errors import chat_error_message
 
 
 DEFAULT_AGENT_API_URL = "http://127.0.0.1:7860/api/agent"
@@ -186,6 +187,9 @@ def _parse_tool_blocks(data: dict[str, Any]) -> list[AgentToolBlock]:
 
 
 def map_agent_error(exc: Exception) -> str:
+    chat_message = chat_error_message(exc)
+    if chat_message is not None:
+        return chat_message
     if isinstance(exc, httpx.TimeoutException):
         return AGENT_TIMEOUT
     if isinstance(exc, httpx.HTTPStatusError):
