@@ -60,10 +60,10 @@ def test_concurrent_requests_do_not_duplicate_daily_build(tmp_path,monkeypatch):
 def test_refresh_only_builds_two_default_images(tmp_path,monkeypatch):
     service=reports.ChartReports(ArchiveStore(tmp_path/"archive"),tmp_path/"charts")
     called=[]
-    async def image(kind,page=1,days=30):called.append((kind,days));return b""
+    async def image(kind,page=1,days=30,rank_cutoff=100):called.append((kind,days,rank_cutoff));return b""
     monkeypatch.setattr(service,"image",image)
     asyncio.run(service.refresh())
-    assert called==[("usage",30),("extra",30),("matchups",30)]
+    assert called==[("usage",30,100),("extra",30,100),("matchups",30,100),("matchups",30,500)]
 
 def test_pruning_retention_and_size_does_not_delete_other_files(tmp_path,monkeypatch):
     store=ArchiveStore(tmp_path/"archive");root=tmp_path/"charts";root.mkdir()
@@ -101,7 +101,7 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
     store=ArchiveStore(tmp_path/"archive")
     factory=commands.register_commands(lambda:store,lambda:None)
     calls=[];sent=[]
-    async def image(kind,page=1,days=30):calls.append((kind,page,days));return b"fixture-png"
+    async def image(kind,page=1,days=30,rank_cutoff=100):calls.append((kind,page,days,rank_cutoff));return b"fixture-png"
     monkeypatch.setattr(factory(),"image",image)
     class Bot:
         async def send(self,event,message):sent.append(message)
@@ -110,9 +110,10 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
         await registered["卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
+        await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("前500 7"))
     asyncio.run(run())
-    assert calls==[("usage",1,30),("matchups",1,7),("extra",1,30)]
-    assert len(sent)==3 and all(m.type=="image" for m in sent)
+    assert calls==[("usage",1,30,100),("matchups",1,7,100),("extra",1,30,100),("matchups",1,7,500)]
+    assert len(sent)==4 and all(m.type=="image" for m in sent)
 
 
 def test_extra_chart_uses_separate_rows():
@@ -160,3 +161,23 @@ def test_matchup_heatmap_empty_and_invalid_page():
     data=matchup();data["rows"]=[]
     assert Image.open(BytesIO(charts.render_matchups(data,"北京时间"))).format=="PNG"
     with pytest.raises(ValueError):charts.render_matchups(matchup(),"北京时间",2)
+
+
+
+def test_matchup_scope_snapshots_and_images_are_independent(tmp_path,monkeypatch):
+    service=reports.ChartReports(ArchiveStore(tmp_path/"archive"),tmp_path/"charts")
+    calls=[]
+    def build(store,days,now,rank_cutoff=100):
+        calls.append(rank_cutoff);data=matchup();data["rank_cutoff"]=rank_cutoff;return data
+    monkeypatch.setattr(reports,"matchup_stats",build)
+    monkeypatch.setattr(reports,"render_matchups",lambda data,*args:b"\x89PNG\r\n\x1a\n"+str(data["rank_cutoff"]).encode())
+    async def run():
+        a=await service.image("matchups")
+        b=await service.image("matchups",rank_cutoff=500)
+        assert a!=b and a.endswith(b"100") and b.endswith(b"500")
+        assert await service.image("matchups")==a
+        assert await service.image("matchups",rank_cutoff=500)==b
+        with pytest.raises(ValueError):await service.image("matchups",rank_cutoff=200)
+    asyncio.run(run())
+    assert calls==[100,500]
+    assert len(list((tmp_path/"charts").glob("*matchups-top*-30.json")))==2

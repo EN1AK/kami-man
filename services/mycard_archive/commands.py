@@ -116,21 +116,29 @@ def register_commands(library,collector):
             parts=args.extract_plain_text().split()
             text_mode=bool(parts and parts[-1]=="文字")
             if text_mode:parts.pop()
+            selectors={"前100":100,"前500":500,"前一百":100,"前五百":500}
+            markers=[p for p in parts if p in selectors]
+            if len(markers)>1:raise ValueError("排名范围重复")
+            cutoff=selectors[markers[0]] if markers else 100
+            parts=[p for p in parts if p not in selectors]
+            if parts and parts[0] in ("100","500"):
+                if markers:raise ValueError("排名范围重复")
+                cutoff=int(parts.pop(0))
             if len(parts)>2:raise ValueError("参数过多")
             days=int(parts[0]) if parts else 30
             page=int(parts[1]) if len(parts)>1 else 1
             if not 1<=days<=90 or page<1:raise ValueError("参数范围")
             if not text_mode:
-                raw=await report_service().image("matchups",page,days)
+                raw=await report_service().image("matchups",page,days,rank_cutoff=cutoff)
                 await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
                 return
             async def build():
                 await asyncio.to_thread(MatchResults,library())
-                return await asyncio.to_thread(matchup_stats,library(),days)
-            data=await cached(("matchups",days),build)
+                return await asyncio.to_thread(matchup_stats,library(),days,rank_cutoff=cutoff)
+            data=await cached(("matchups",days,cutoff),build)
             text=matchup_text(data,page)
         except ValueError:
-            text="用法：卡组对阵胜率 [天数1～90]，默认近30天。前20大类热力图只有一页；完整列表：卡组对阵胜率 [天数] [页码] 文字。"
+            text="用法：卡组对阵胜率 [前100/前500] [天数1～90]，默认前100、近30天。热力图只有一页；完整列表可加 [页码] 文字。"
         except Exception:
             text="对阵统计暂不可用，请稍后再试。"
         await send(bot,event,text)

@@ -13,9 +13,9 @@ from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,matchup_stats
 
 CHINA=ZoneInfo("Asia/Shanghai")
-SNAPSHOT_VERSION=9
+SNAPSHOT_VERSION=10
 CACHE_LIMIT=32*1024**2
-FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|matchups-[1-9]\d?)(?:-v[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
+FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|matchups-(?:top(?:100|500)-)?[1-9]\d?)(?:-v[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
 
 class ChartReports:
     def __init__(self,store,root=None,clock=time.time):
@@ -28,7 +28,7 @@ class ChartReports:
         self.root.mkdir(parents=True,exist_ok=True)
         cutoff=(datetime.fromisoformat(day)-timedelta(days=2)).date().isoformat()
         files=[]
-        keep={day+"-usage.json",day+"-matchups-30.json",*protected}
+        keep={day+"-usage.json",day+"-matchups-top100-30.json",day+"-matchups-top500-30.json",*protected}
         for path in self.root.iterdir():
             match=FILE_NAME.fullmatch(path.name)
             if not match or path.is_symlink() or not path.is_file():continue
@@ -53,9 +53,9 @@ class ChartReports:
             temp.unlink(missing_ok=True)
         self.prune(day,{path.name})
 
-    async def snapshot(self,kind,days,now):
+    async def snapshot(self,kind,days,now,rank_cutoff=100):
         day=datetime.fromtimestamp(now,CHINA).date().isoformat()
-        key="usage" if kind=="usage" else f"matchups-{days}"
+        key="usage" if kind=="usage" else f"matchups-top{rank_cutoff}-{days}"
         path=self.root/f"{day}-{key}.json"
         if path.is_file() and not path.is_symlink():
             try:
@@ -71,20 +71,21 @@ class ChartReports:
             names=await asyncio.to_thread(card_names,[r["card"] for r in data["rows"]+data["extra_rows"]])
         else:
             await asyncio.to_thread(MatchResults,self.store)
-            data=await asyncio.to_thread(matchup_stats,self.store,days,now)
+            data=await asyncio.to_thread(matchup_stats,self.store,days,now,rank_cutoff=rank_cutoff)
             names={}
         snapshot=dict(day=day,key=key,data=data,names=names,version=SNAPSHOT_VERSION,
             generated_at=datetime.fromtimestamp(now,CHINA).strftime("%Y-%m-%d %H:%M 北京时间"))
         await asyncio.to_thread(self.save,path,json.dumps(snapshot,ensure_ascii=False).encode("utf-8"),day)
         return snapshot
 
-    async def image(self,kind,page=1,days=30):
+    async def image(self,kind,page=1,days=30,rank_cutoff=100):
         if kind not in {"usage","extra","matchups"} or type(page) is not int or page<1 or type(days) is not int or not 1<=days<=90:
             raise ValueError("图表参数无效")
+        if type(rank_cutoff) is not int or rank_cutoff not in (100,500):raise ValueError("排名范围应为前100或前500")
         if kind=="matchups" and page!=1:raise ValueError("对阵热力图只有1页")
         async with self.lock:
             now=self.clock()
-            snapshot=await self.snapshot("usage" if kind=="extra" else kind,days,now)
+            snapshot=await self.snapshot("usage" if kind=="extra" else kind,days,now,rank_cutoff)
             image_key="extra" if kind=="extra" else snapshot["key"]
             path=self.root/f"{snapshot['day']}-{image_key}-v{SNAPSHOT_VERSION}-p{page}.png"
             if path.is_file() and not path.is_symlink():
@@ -103,4 +104,5 @@ class ChartReports:
     async def refresh(self):
         await self.image("usage")
         await self.image("extra")
-        await self.image("matchups",days=30)
+        await self.image("matchups",days=30,rank_cutoff=100)
+        await self.image("matchups",days=30,rank_cutoff=500)

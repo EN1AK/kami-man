@@ -263,7 +263,7 @@ def test_matchups_accept_rank500_and_exclude_rank501(tmp_path):
     store=ArchiveStore(tmp_path);now=time.time()
     archived(store,"boundary-in",now-1000,ranks={"Alice":500,"Bob":800},winner="Alice")
     archived(store,"boundary-out",now-900,ranks={"Alice":501,"Bob":800},winner="Alice")
-    data=matchup_stats(store,now=now,classifier=lambda d,r:{1:"A",2:"B"}[d.main[0]])
+    data=matchup_stats(store,now=now,classifier=lambda d,r:{1:"A",2:"B"}[d.main[0]],rank_cutoff=500)
     assert data["eligible"]==data["used"]==1
 
 
@@ -326,3 +326,17 @@ def test_default_matchup_stats_merge_core_variants(tmp_path,monkeypatch):
                 db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player=?",(json.dumps(value),key,player))
     result=matchup_stats(store,now=now)
     assert result["used"]==2 and result["rows"]==[dict(a="乙",b="甲",matches=2,a_wins=1,b_wins=1)]
+
+
+
+def test_matchup_scopes_default100_and_optional500(tmp_path):
+    store=ArchiveStore(tmp_path);now=time.time()
+    for rank in (100,101,500,501):
+        archived(store,f"rank{rank}",now-1000+rank,ranks={"Alice":rank,"Bob":900},winner="Alice")
+    classify=lambda deck,rules:{1:"A",2:"B"}[deck.main[0]]
+    a=matchup_stats(store,now=now,classifier=classify)
+    b=matchup_stats(store,now=now,classifier=classify,rank_cutoff=500)
+    assert a["rank_cutoff"]==100 and a["eligible"]==a["used"]==1
+    assert b["rank_cutoff"]==500 and b["eligible"]==b["used"]==3
+    for cutoff in (0,101,True):
+        with pytest.raises(ValueError):matchup_stats(store,rank_cutoff=cutoff)

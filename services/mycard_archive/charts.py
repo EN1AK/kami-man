@@ -132,10 +132,11 @@ def render_matchups(data,stamp,page=1):
     from matplotlib.patches import Rectangle
     matrix=matchup_matrix(data)
     names=matrix["names"];count=len(names)
+    cutoff=data.get("rank_cutoff",100)
     with _RENDER_LOCK:
         f=font()
         figure=Figure(figsize=(21,21),dpi=140,facecolor="#f5f7fb")
-        figure.text(.045,.97,f"卡组大类对阵热力图 · 出场前20 · 近{data['days']}天",fontproperties=f,fontsize=25,weight="bold",color="#15253d",va="top")
+        figure.text(.045,.97,f"卡组对阵热力图 · 前{cutoff}样本 · 出场前20 · 近{data['days']}天",fontproperties=f,fontsize=25,weight="bold",color="#15253d",va="top")
         figure.text(.955,.97,stamp,fontproperties=f,fontsize=10,color="#53647b",ha="right",va="top")
         figure.text(.045,.94,f"有效样本 {data['used']} 场 · 图中双方均入选 {matrix['shown_matches']} 场 · 展示 {count} 类；按全部有效对局出场次数排序，内战双方各计一次。",fontproperties=f,fontsize=12,color="#53647b")
         figure.text(.045,.918,f"行卡组对列卡组的胜率｜n＝该组合完整Match场数；未核实 {data['missing_result']} · 缺卡组 {data['missing_deck']} · 未识别 {data['unclassified']}",fontproperties=f,fontsize=11,color="#53647b")
@@ -170,6 +171,6 @@ def render_matchups(data,stamp,page=1):
         else:
             ax.set_axis_off();ax.text(.5,.5,"暂无可核实的对阵样本",transform=ax.transAxes,fontproperties=f,fontsize=20,ha="center")
         figure.text(.045,.075,"蓝色＝行方胜率高，橙色＝行方胜率低，浅色＝接近50%；* 少于10场，样本较少。灰色“—”＝无样本。",fontproperties=f,fontsize=12,color="#53647b")
-        figure.text(.045,.05,"对角线仅列内战场数，不填50%胜率。至少一方采集时前500；官方核实胜负，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=11,color="#53647b")
-        figure.text(.045,.025,"查询：卡组对阵胜率 [天数1～90]　｜　热力图共一页，每天更新；完整列表可加“文字”。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.05,f"对角线仅列内战场数，不填50%胜率。至少一方采集时前{cutoff}；官方核实胜负，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.025,"查询：卡组对阵胜率 [前100/前500] [天数1～90]　｜　默认前100；热力图共一页，每天更新，完整列表加“文字”。",fontproperties=f,fontsize=11,color="#53647b")
         return png(figure)

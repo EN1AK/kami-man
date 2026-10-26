@@ -135,9 +135,10 @@ def card_names(codes):
                 names.update(db.execute("SELECT id,name FROM texts WHERE id IN ("+",".join("?" for _ in part)+")",part))
     return names
 
-def matchup_stats(store,days=30,now=None,classifier=classify_archetype):
+def matchup_stats(store,days=30,now=None,classifier=classify_archetype,rank_cutoff=100):
     if type(days) is not int or not 1<=days<=90:
         raise ValueError("统计天数应为 1～90")
+    if type(rank_cutoff) is not int or rank_cutoff not in (100,500):raise ValueError("排名范围应为前100或前500")
     now=time.time() if now is None else now
     with store.connect() as db:
         rows=db.execute("""SELECT m.id,m.players,m.ranks,m.first_seen,r.winner,
@@ -155,7 +156,7 @@ def matchup_stats(store,days=30,now=None,classifier=classify_archetype):
         return cache[key]
     for row in rows:
         ranks=json.loads(row["ranks"])
-        if not any(type(rank) is int and 1<=rank<=500 for rank in ranks.values()):
+        if not any(type(rank) is int and 1<=rank<=rank_cutoff for rank in ranks.values()):
             continue
         eligible+=1;players=json.loads(row["players"])
         if row["winner"] not in players:
@@ -174,7 +175,7 @@ def matchup_stats(store,days=30,now=None,classifier=classify_archetype):
             winner_label=labels[players.index(row["winner"])]
             entry["a_wins" if winner_label==a else "b_wins"]+=1
     ordered=sorted(pairs.values(),key=lambda x:(-x["matches"],x["a"],x["b"]))
-    return dict(days=days,eligible=eligible,used=used,missing_result=missing_result,
+    return dict(days=days,rank_cutoff=rank_cutoff,eligible=eligible,used=used,missing_result=missing_result,
                 missing_deck=missing_deck,unclassified=unclassified,rows=ordered)
 
 
@@ -231,8 +232,9 @@ def usage_text(data,page=1,names=None,extra=False):
 
 def matchup_text(data,page=1):
     rows,pages=page_rows(data["rows"],page)
-    lines=[f"前五百卡组大类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
-        f"采集时至少一方前500的完整归档 {data['eligible']} 场；有效样本 {data['used']} 场。",
+    cutoff=data.get("rank_cutoff",100)
+    lines=[f"前{cutoff}卡组大类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
+        f"采集时至少一方前{cutoff}的完整归档 {data['eligible']} 场；有效样本 {data['used']} 场。",
         f"未核实胜负 {data['missing_result']}；卡组不完整 {data['missing_deck']}；分类未识别 {data['unclassified']}。",
         "每场Match只计一次；按官方胜者核对，不以录像结束推断胜负；按核心体系大类归并，卡组详情保留具体构筑名。"]
     for row in rows:
@@ -243,5 +245,5 @@ def matchup_text(data,page=1):
             lines.append(f"{row['a']} vs {row['b']}：{row['a_wins']}胜/{row['b_wins']}负，{row['a_wins']/row['matches']:.1%}（{row['matches']}场）{note}")
     if not rows:
         lines.append("暂无可核实的对阵样本；后台核对完成后可增加样本；无法唯一匹配的对局不会计入。")
-    lines.append("观战样本存在偏差，非全平台胜率。用法：卡组对阵胜率 [天数1～90] [页码]")
+    lines.append("观战样本存在偏差，非全平台胜率。用法：卡组对阵胜率 [前100/前500] [天数1～90] [页码] 文字")
     return "\n".join(lines)
