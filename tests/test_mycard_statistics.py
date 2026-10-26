@@ -301,3 +301,28 @@ def test_top500_unverified_ranks_are_missing_and_outage_not_cached(tmp_path,monk
     monkeypatch.setattr(RankCache,"rank",fail)
     with pytest.raises(ValueError):asyncio.run(top_players(None,store))
     assert not (tmp_path/"mycard_reports"/"ranking.json").exists()
+
+
+
+def test_default_matchup_stats_merge_core_variants(tmp_path,monkeypatch):
+    import sqlite3
+    from services.mycard_archive.archetypes import DEFAULT_RULES
+    config=json.loads(DEFAULT_RULES.read_text())
+    config.update(field_names={"1":"甲","2":"乙"},ignored_fields=[],groups=[])
+    custom=tmp_path/"archetypes.json";custom.write_text(json.dumps(config))
+    catalog=tmp_path/"cards.cdb"
+    with sqlite3.connect(catalog) as db:
+        db.executescript("CREATE TABLE datas(id INTEGER,setcode INTEGER);CREATE TABLE texts(id INTEGER,name TEXT);")
+        db.executemany("INSERT INTO datas VALUES(?,?)",[(i,1 if i<4 else 2) for i in range(1,7)])
+        db.executemany("INSERT INTO texts VALUES(?,?)",[(i,str(i)) for i in range(1,7)])
+    monkeypatch.setenv("MYCARD_CARD_DB",str(catalog))
+    monkeypatch.setenv("MYCARD_ARCHETYPE_RULES",str(custom))
+    store=ArchiveStore(tmp_path/"archive");now=time.time()
+    for i,winner in enumerate(("Alice","Bob")):
+        key=archived(store,f"variant{i}",now-1000+i,winner=winner)
+        for player,cards in (("Alice",[1,2,3]*3+([4]*3 if i else [])),("Bob",[4,5,6]*3)):
+            value={"main":cards+[999]*(40-len(cards)),"extra":[],"side":[]}
+            with store.connect() as db:
+                db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player=?",(json.dumps(value),key,player))
+    result=matchup_stats(store,now=now)
+    assert result["used"]==2 and result["rows"]==[dict(a="乙",b="甲",matches=2,a_wins=1,b_wins=1)]

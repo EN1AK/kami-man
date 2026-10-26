@@ -129,7 +129,7 @@ def render_matchups(data,stamp,page=1):
     labels=[label(r["a"],17) if r["a"]==r["b"] else label(r["a"],17)+"\nvs "+label(r["b"],15) for r in rows]
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
-        figure,ax,f=setup(total,f"卡组分类对阵胜率 · 近{data['days']}天 · 第{page}/{pages}页",
+        figure,ax,f=setup(total,f"卡组大类对阵胜率 · 近{data['days']}天 · 第{page}/{pages}页",
             f"有效样本 {data['used']} 场 / 完整归档 {data['eligible']} 场；未核实胜负 {data['missing_result']} · 缺卡组 {data['missing_deck']} · 未识别 {data['unclassified']}",stamp)
         for i,r in enumerate(rows):
             y=positions[i]
@@ -150,6 +150,6 @@ def render_matchups(data,stamp,page=1):
             ax.set_yticks([])
             ax.text(.5,.5,"暂无可核实的对阵样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
         figure.text(.045,.085,"蓝色＝每行第一方卡组获胜，橙色＝对手获胜；* 少于10场，样本较少。",fontproperties=f,fontsize=11,color="#53647b")
-        figure.text(.045,.055,"至少一方采集时前500；按官方胜者核对，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=10,color="#53647b")
+        figure.text(.045,.055,"核心体系大类归并；至少一方采集时前500，按官方胜者核对，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=10,color="#53647b")
         figure.text(.045,.025,"查询：卡组对阵胜率 [天数1～90] [页码]　｜　每天更新一次；灰色内战不计算方向胜率。",fontproperties=f,fontsize=10,color="#53647b")
         return png(figure)

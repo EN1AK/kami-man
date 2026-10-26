@@ -7,7 +7,7 @@ import sqlite3
 import time
 import aiohttp
 from .replay import ObservedDeck
-from .presentation import classify
+from .archetypes import classify_archetype
 
 class RankedPlayers(list):
     """Only archived players need rank checks; unobserved top-500 remain missing."""
@@ -135,7 +135,7 @@ def card_names(codes):
                 names.update(db.execute("SELECT id,name FROM texts WHERE id IN ("+",".join("?" for _ in part)+")",part))
     return names
 
-def matchup_stats(store,days=30,now=None,classifier=classify):
+def matchup_stats(store,days=30,now=None,classifier=classify_archetype):
     if type(days) is not int or not 1<=days<=90:
         raise ValueError("统计天数应为 1～90")
     now=time.time() if now is None else now
@@ -210,10 +210,10 @@ def usage_text(data,page=1,names=None,extra=False):
 
 def matchup_text(data,page=1):
     rows,pages=page_rows(data["rows"],page)
-    lines=[f"前五百卡组分类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
+    lines=[f"前五百卡组大类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
         f"采集时至少一方前500的完整归档 {data['eligible']} 场；有效样本 {data['used']} 场。",
         f"未核实胜负 {data['missing_result']}；卡组不完整 {data['missing_deck']}；分类未识别 {data['unclassified']}。",
-        "每场Match只计一次；按官方胜者核对，不以录像结束推断胜负；分类沿用当前卡组命名规则。"]
+        "每场Match只计一次；按官方胜者核对，不以录像结束推断胜负；按核心体系大类归并，卡组详情保留具体构筑名。"]
     for row in rows:
         if row["a"]==row["b"]:
             lines.append(f"{row['a']} 内战：{row['matches']}场（不展示方向胜率）")
