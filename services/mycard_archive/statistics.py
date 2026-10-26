@@ -33,9 +33,27 @@ async def top_players(session,store):
             return [r[0] for r in db.execute("SELECT DISTINCT player FROM observations ORDER BY player")]
     players=await asyncio.to_thread(candidates)
     rank=RankCache(session)
+    failures=0
+    consecutive=0
+    async def check(player):
+        nonlocal failures,consecutive
+        try:
+            value=await rank.rank(player)
+            consecutive=0
+            return value
+        except Exception as exc:
+            failures+=1;consecutive+=1
+            if consecutive>=8 or failures>max(5,len(players)*.05):
+                raise ValueError("官方排名服务暂不可用，已停止批量核验") from None
+            return exc
+    tasks=[asyncio.create_task(check(p)) for p in players]
     try:
-        results=await asyncio.gather(*(rank.rank(p) for p in players),return_exceptions=True)
-    finally:await rank.close()
+        results=await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():task.cancel()
+        await asyncio.gather(*tasks,return_exceptions=True)
+        await rank.close()
     unverified=sum(type(r) is not int for r in results)
     if players and (unverified==len(players) or unverified>max(5,len(players)*.05)):
         raise ValueError("官方排名核验失败过多，请稍后再试")
@@ -170,7 +188,7 @@ def usage_text(data,page=1,names=None,extra=False):
     names=names or {}
     title="前五百额外卡组使用率" if extra else "前五百主卡/Side使用率"
     lines=[f"{title}｜前100张｜{page}/{pages}页",
-        f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人；排名未核验 {data.get('rank_unverified',0)} 人。",
+        f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人；归档排名未核验 {data.get('rank_unverified',0)} 人。",
         "每人最新卡组版本；同版本Side合并已观察换入。按玩家人数计算投入率，非卡片张数占比。"]
     for i,row in enumerate(rows,(page-1)*20+1):
         name=row.get("name") or names.get(row["card"]) or str(row["card"])

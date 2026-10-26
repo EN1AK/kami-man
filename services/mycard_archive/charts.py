@@ -67,7 +67,7 @@ def render_usage(data,names,stamp,page=1):
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
         figure,ax,f=setup(total,f"前五百主卡 / Side使用率 · 前100张 · 第{page}/{pages}页",
-            f"覆盖 {data['covered']}/{data['total']} 人 · 缺失 {data['missing']} 人 · 观察到Side的玩家 {data.get('side_observed',0)} 人 · 排名未核验 {data.get('rank_unverified',0)} 人",stamp)
+            f"覆盖 {data['covered']}/{data['total']} 人 · 缺失 {data['missing']} 人 · 观察到Side的玩家 {data.get('side_observed',0)} 人 · 归档排名未核验 {data.get('rank_unverified',0)} 人",stamp)
         figure.set_size_inches(20,figure.get_figheight())
         ax.set_position([.26,.16,.69,.73])
         ax.set_xlim(0,400);ax.set_xticks([]);ax.grid(False)
@@ -102,7 +102,7 @@ def render_extra(data,names,stamp,page=1):
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
         figure,ax,f=setup(total,f"前五百额外卡组使用率 · 前100张 · 第{page}/{pages}页",
-            f"完整卡组覆盖 {data['covered']}/{data['total']} 人  ·  缺失 {data['missing']} 人  ·  超过7天未更新 {data['stale']} 人 · 排名未核验 {data.get('rank_unverified',0)} 人",stamp)
+            f"完整卡组覆盖 {data['covered']}/{data['total']} 人  ·  缺失 {data['missing']} 人  ·  超过7天未更新 {data['stale']} 人 · 归档排名未核验 {data.get('rank_unverified',0)} 人",stamp)
         figure.set_size_inches(20,figure.get_figheight())
         ax.set_position([.26,.16,.42,.73])
         ax.text(145,1.02,"投入张数占比（携带者）",transform=ax.get_xaxis_transform(),ha="center",fontproperties=f,fontsize=11,color="#15253d")
