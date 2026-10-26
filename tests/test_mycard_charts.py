@@ -107,7 +107,7 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
         async def send(self,event,message):sent.append(message)
     assert not sent and not calls
     async def run():
-        await registered["前五百卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
+        await registered["卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7 2"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
     asyncio.run(run())

@@ -163,10 +163,10 @@ def test_commands_register_permissions_and_persist_without_live_collector(tmp_pa
     store=ArchiveStore(tmp_path)
     commands.register_commands(lambda:store,lambda:None)
     assert len(registry)==6
-    assert "前百卡片使用率" in registry["前五百卡片使用率"].options["aliases"]
+    assert "前百卡片使用率" in registry["卡片使用率"].options["aliases"]
     for name in ("卡组采集","停止卡组采集","卡组采集列表"):
         assert registry[name].options["permission"] is SUPERUSER
-    assert "permission" not in registry["前五百卡片使用率"].options
+    assert "permission" not in registry["卡片使用率"].options
     sent=[]
     class Bot:
         async def send(self,event,message):sent.append(str(message))

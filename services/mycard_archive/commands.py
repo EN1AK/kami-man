@@ -17,7 +17,7 @@ def register_commands(library,collector):
     capture=on_command("卡组采集",aliases={"MyCard采集"},permission=SUPERUSER,priority=5,block=True)
     stop=on_command("停止卡组采集",aliases={"MyCard停止采集"},permission=SUPERUSER,priority=5,block=True)
     targets=on_command("卡组采集列表",aliases={"MyCard采集列表"},permission=SUPERUSER,priority=5,block=True)
-    usage=on_command("前五百卡片使用率",aliases={"前百卡片使用率","MyCard卡片使用率"},priority=5,block=True)
+    usage=on_command("卡片使用率",aliases={"前五百卡片使用率","前百卡片使用率","MyCard卡片使用率"},priority=5,block=True)
     extra_usage=on_command("额外卡组使用率",aliases={"前五百额外使用率","前百额外使用率","MyCard额外使用率"},priority=5,block=True)
     matchups=on_command("卡组对阵胜率",aliases={"MyCard对阵胜率"},priority=5,block=True)
     reports=None
@@ -97,7 +97,7 @@ def register_commands(library,collector):
             names=await asyncio.to_thread(card_names,[x["card"] for x in data["rows"]+data["extra_rows"]])
             text=usage_text(data,page,names,kind=="extra")
         except ValueError:
-            text="参数或榜单暂不可用；用法：前五百卡片使用率 [页码]。请使用范围内的正整数页码。"
+            text="参数或榜单暂不可用；用法：卡片使用率 [页码]。请使用范围内的正整数页码。"
         except Exception:
             text="官方前五百榜单或归档统计暂不可用，请稍后再试。"
         await send(bot,event,text)

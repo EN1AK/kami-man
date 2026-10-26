@@ -92,7 +92,7 @@ def render_usage(data,names,stamp,page=1):
             ax.set_yticks([]);ax.text(.5,.5,"暂无完整卡组样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
         figure.text(.045,.085,"投入率按携带人数计算；总使用率＝主卡与Side携带人数去重并集 ÷ 覆盖人数，非两率相加。",fontproperties=f,fontsize=10,color="#53647b")
         figure.text(.045,.055,"张数分布按携带者计算，主卡＋观测Side合算；Side未知可能低估，观测4+另列，不代表合法配置。",fontproperties=f,fontsize=10,color="#53647b")
-        figure.text(.045,.025,"按总使用率排序，仅列前100张；同名不同卡号已合并。每天更新，按需查询：前五百卡片使用率 [页码]",fontproperties=f,fontsize=10,color="#53647b")
+        figure.text(.045,.025,"按总使用率排序，仅列前100张；同名不同卡号已合并。每天更新，按需查询：卡片使用率 [页码]",fontproperties=f,fontsize=10,color="#53647b")
         return png(figure)
 
 def render_extra(data,names,stamp,page=1):

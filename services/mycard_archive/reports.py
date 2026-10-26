@@ -13,7 +13,7 @@ from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,matchup_stats
 
 CHINA=ZoneInfo("Asia/Shanghai")
-SNAPSHOT_VERSION=6
+SNAPSHOT_VERSION=7
 CACHE_LIMIT=32*1024**2
 FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|matchups-[1-9]\d?)(?:-v[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
 
