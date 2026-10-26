@@ -63,7 +63,7 @@ def test_refresh_only_builds_two_default_images(tmp_path,monkeypatch):
     async def image(kind,page=1,days=30,rank_cutoff=100):called.append((kind,days,rank_cutoff));return b""
     monkeypatch.setattr(service,"image",image)
     asyncio.run(service.refresh())
-    assert called==[("usage",30,100),("extra",30,100),("matchups",30,100),("matchups",30,500)]
+    assert called==[("usage",30,100),("extra",30,100),("matchups",30,100),("matchups",30,500),("impact",30,100),("impact",30,500)]
 
 def test_pruning_retention_and_size_does_not_delete_other_files(tmp_path,monkeypatch):
     store=ArchiveStore(tmp_path/"archive");root=tmp_path/"charts";root.mkdir()
@@ -111,9 +111,11 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("前500 7"))
+        await registered["卡片影响度"].handler(Bot(),SimpleNamespace(),Message(""))
+        await registered["卡片影响度"].handler(Bot(),SimpleNamespace(),Message("前500 7 2 额外"))
     asyncio.run(run())
-    assert calls==[("usage",1,30,100),("matchups",1,7,100),("extra",1,30,100),("matchups",1,7,500)]
-    assert len(sent)==4 and all(m.type=="image" for m in sent)
+    assert calls==[("usage",1,30,100),("matchups",1,7,100),("extra",1,30,100),("matchups",1,7,500),("impact",1,30,100),("impact-extra",2,7,500)]
+    assert len(sent)==6 and all(m.type=="image" for m in sent)
 
 
 def test_extra_chart_uses_separate_rows():

@@ -8,6 +8,7 @@ from nonebot.adapters.onebot.v11 import Bot,MessageEvent,Message,MessageSegment
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
 from .reports import ChartReports
+from .impact import impact_stats,impact_text
 from .tracking import TrackingStore
 from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,usage_text,matchup_stats,matchup_text
@@ -20,6 +21,7 @@ def register_commands(library,collector):
     usage=on_command("卡片使用率",aliases={"前五百卡片使用率","前百卡片使用率","MyCard卡片使用率"},priority=5,block=True)
     extra_usage=on_command("额外卡组使用率",aliases={"前五百额外使用率","前百额外使用率","MyCard额外使用率"},priority=5,block=True)
     matchups=on_command("卡组对阵胜率",aliases={"MyCard对阵胜率"},priority=5,block=True)
+    impact=on_command("卡片影响度",aliases={"卡片携带影响","MyCard卡片影响度"},priority=5,block=True)
     reports=None
     def report_service():
         nonlocal reports
@@ -141,6 +143,42 @@ def register_commands(library,collector):
             text="用法：卡组对阵胜率 [前100/前500] [天数1～90]，默认前100、近30天。热力图只有一页；完整列表可加 [页码] 文字。"
         except Exception:
             text="对阵统计暂不可用，请稍后再试。"
+        await send(bot,event,text)
+
+    @impact.handle()
+    async def show_impact(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
+        try:
+            parts=args.extract_plain_text().split()
+            text_mode=bool(parts and parts[-1]=="文字")
+            if text_mode:parts.pop()
+            extra="额外" in parts
+            if parts.count("额外")>1:raise ValueError("参数重复")
+            parts=[p for p in parts if p!="额外"]
+            selectors={"前100":100,"前500":500,"前一百":100,"前五百":500}
+            markers=[p for p in parts if p in selectors]
+            if len(markers)>1:raise ValueError("排名范围重复")
+            cutoff=selectors[markers[0]] if markers else 100
+            parts=[p for p in parts if p not in selectors]
+            if parts and parts[0] in ("100","500"):
+                if markers:raise ValueError("排名范围重复")
+                cutoff=int(parts.pop(0))
+            if len(parts)>2:raise ValueError("参数过多")
+            days=int(parts[0]) if parts else 30
+            page=int(parts[1]) if len(parts)>1 else 1
+            if not 1<=days<=90 or page<1:raise ValueError("参数范围")
+            if not text_mode:
+                raw=await report_service().image("impact-extra" if extra else "impact",page,days,rank_cutoff=cutoff)
+                await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
+                return
+            async def build():
+                await asyncio.to_thread(MatchResults,library())
+                return await asyncio.to_thread(impact_stats,library(),days,rank_cutoff=cutoff)
+            data=await cached(("impact",days,cutoff),build)
+            text=impact_text(data,page,extra)
+        except ValueError:
+            text="用法：卡片影响度 [前100/前500] [天数1～90] [页码] [额外] [文字]，默认前100、近30天、主卡。"
+        except Exception:
+            text="卡片携带胜率差统计暂不可用，请稍后再试。"
         await send(bot,event,text)
 
     return report_service

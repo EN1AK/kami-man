@@ -174,3 +174,35 @@ def render_matchups(data,stamp,page=1):
         figure.text(.045,.05,f"对角线仅列内战场数，不填50%胜率。至少一方采集时前{cutoff}；官方核实胜负，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.025,"查询：卡组对阵胜率 [前100/前500] [天数1～90]　｜　默认前100；热力图共一页，每天更新，完整列表加“文字”。",fontproperties=f,fontsize=11,color="#53647b")
         return png(figure)
+
+
+
+def render_impact(data,stamp,page=1,extra=False):
+    kind="extra" if extra else "main"
+    rows,pages=page_rows(data[kind+"_rows"],page)
+    labels=[label(r["name"],16) for r in rows]
+    positions,total=row_layout(labels)
+    with _RENDER_LOCK:
+        figure,ax,f=setup(total,f"卡片携带胜率差 · {'额外' if extra else '主卡'} · 前{data['rank_cutoff']} · 近{data['days']}天 · {page}/{pages}页",
+            f"有效玩家对局 {data['samples']} 次 / {data['players']} 人 · 同体系比较后加权 · 不可比较卡 {data[kind+'_uncomparable']} 种",stamp)
+        figure.set_size_inches(21,figure.get_figheight())
+        ax.set_position([.24,.18,.35,.68]);ax.set_xlim(-100,100)
+        ax.set_xticks([-100,-50,0,50,100]);ax.set_xticklabels(["−100pp","−50pp","0","+50pp","+100pp"],fontproperties=f,fontsize=10)
+        ax.axvline(0,color="#53647b",linewidth=1)
+        for x,title in ((.64,"加权携带 / 未携带胜率"),(.80,"携带 / 未携带样本 · 体系数")):
+            figure.text(x,.88,title,fontproperties=f,fontsize=11,color="#15253d")
+        for y,r in zip(positions,rows):
+            delta=r["delta"]*100
+            ax.barh(y,delta,height=.53,color="#2676c9" if delta>=0 else "#c26b35")
+            ax.text(delta+(2 if delta>=0 else -2),y,f"{delta:+.1f}pp",ha="left" if delta>=0 else "right",va="center",fontproperties=f,fontsize=10,color="#15253d")
+            ax.text(125,y,f"{r['with_rate']:.1%} / {r['without_rate']:.1%}",fontproperties=f,fontsize=11,va="center",clip_on=False,color="#15253d")
+            ax.text(215,y,f"{r['with_n']} / {r['without_n']} 次 · {r['classes']}类",fontproperties=f,fontsize=11,va="center",clip_on=False,color="#15253d")
+        if rows:
+            ax.set_yticks(positions);ax.set_yticklabels(labels,fontproperties=f,fontsize=11);ax.set_ylim(total,0)
+        else:
+            ax.set_yticks([]);ax.text(.5,.5,"暂无满足双组样本门槛的卡片",transform=ax.transAxes,ha="center",fontproperties=f,fontsize=16)
+        figure.text(.045,.11,f"每个体系携带、未携带各至少{data['minimum_samples']}次且各至少{data['minimum_players']}位玩家；缺少对照不等于零影响。按差值绝对值排序。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.075,"差值＝同体系加权携带胜率 − 未携带胜率，单位为百分点。每名入选玩家每场Match仅记一次；同名异画合并。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.045,"相关差异并非因果提升；未控制玩家水平、对手构成及先后手。仅首份观测主卡/额外，不含不完整Side。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.02,"查询：卡片影响度 [前100/前500] [天数] [页码] [额外]；每天更新，可加“文字”查看主要比较体系。",fontproperties=f,fontsize=10,color="#53647b")
+        return png(figure)

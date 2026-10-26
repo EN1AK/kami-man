@@ -162,7 +162,7 @@ def test_commands_register_permissions_and_persist_without_live_collector(tmp_pa
     monkeypatch.setattr(commands,"on_command",command)
     store=ArchiveStore(tmp_path)
     commands.register_commands(lambda:store,lambda:None)
-    assert len(registry)==6
+    assert len(registry)==7
     assert "前百卡片使用率" in registry["卡片使用率"].options["aliases"]
     for name in ("卡组采集","停止卡组采集","卡组采集列表"):
         assert registry[name].options["permission"] is SUPERUSER
