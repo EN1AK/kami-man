@@ -66,8 +66,8 @@ def render_usage(data,names,stamp,page=1):
     labels=[label(title,18) for title in titles]
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
-        figure,ax,f=setup(total,f"前百主卡 / Side使用率 · 前100张 · 第{page}/{pages}页",
-            f"覆盖 {data['covered']}/{data['total']} 人 · 缺失 {data['missing']} 人 · 观察到Side的玩家 {data.get('side_observed',0)} 人",stamp)
+        figure,ax,f=setup(total,f"前五百主卡 / Side使用率 · 前100张 · 第{page}/{pages}页",
+            f"覆盖 {data['covered']}/{data['total']} 人 · 缺失 {data['missing']} 人 · 观察到Side的玩家 {data.get('side_observed',0)} 人 · 排名未核验 {data.get('rank_unverified',0)} 人",stamp)
         figure.set_size_inches(20,figure.get_figheight())
         ax.set_position([.26,.16,.69,.73])
         ax.set_xlim(0,400);ax.set_xticks([]);ax.grid(False)
@@ -92,7 +92,7 @@ def render_usage(data,names,stamp,page=1):
             ax.set_yticks([]);ax.text(.5,.5,"暂无完整卡组样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
         figure.text(.045,.085,"投入率按携带人数计算；总使用率＝主卡与Side携带人数去重并集 ÷ 覆盖人数，非两率相加。",fontproperties=f,fontsize=10,color="#53647b")
         figure.text(.045,.055,"张数分布按携带者计算，主卡＋观测Side合算；Side未知可能低估，观测4+另列，不代表合法配置。",fontproperties=f,fontsize=10,color="#53647b")
-        figure.text(.045,.025,"按总使用率排序，仅列前100张；同名不同卡号已合并。每天更新，按需查询：前百卡片使用率 [页码]",fontproperties=f,fontsize=10,color="#53647b")
+        figure.text(.045,.025,"按总使用率排序，仅列前100张；同名不同卡号已合并。每天更新，按需查询：前五百卡片使用率 [页码]",fontproperties=f,fontsize=10,color="#53647b")
         return png(figure)
 
 def render_extra(data,names,stamp,page=1):
@@ -101,8 +101,8 @@ def render_extra(data,names,stamp,page=1):
     labels=[label(title,18) for title in titles]
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
-        figure,ax,f=setup(total,f"前百额外卡组使用率 · 前100张 · 第{page}/{pages}页",
-            f"完整卡组覆盖 {data['covered']}/{data['total']} 人  ·  缺失 {data['missing']} 人  ·  超过7天未更新 {data['stale']} 人",stamp)
+        figure,ax,f=setup(total,f"前五百额外卡组使用率 · 前100张 · 第{page}/{pages}页",
+            f"完整卡组覆盖 {data['covered']}/{data['total']} 人  ·  缺失 {data['missing']} 人  ·  超过7天未更新 {data['stale']} 人 · 排名未核验 {data.get('rank_unverified',0)} 人",stamp)
         figure.set_size_inches(20,figure.get_figheight())
         ax.set_position([.26,.16,.42,.73])
         ax.text(145,1.02,"投入张数占比（携带者）",transform=ax.get_xaxis_transform(),ha="center",fontproperties=f,fontsize=11,color="#15253d")
@@ -120,7 +120,7 @@ def render_extra(data,names,stamp,page=1):
             ax.set_yticks([])
             ax.text(.5,.5,"暂无完整卡组样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
         figure.text(.045,.085,"使用率 = 携带人数 ÷ 已覆盖人数；每人仅取最新一套观测卡组。",fontproperties=f,fontsize=11,color="#53647b")
-        figure.text(.045,.055,"仅统计额外卡组；同名合并。张数占比以携带该卡的玩家为分母，非全部前百。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.055,"仅统计额外卡组；同名合并。张数占比以携带该卡的玩家为分母，非全部前五百。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.025,"查询：额外卡组使用率 [页码]　｜　每天更新一次，当日各页使用同一快照。",fontproperties=f,fontsize=10,color="#53647b")
         return png(figure)
 
@@ -150,6 +150,6 @@ def render_matchups(data,stamp,page=1):
             ax.set_yticks([])
             ax.text(.5,.5,"暂无可核实的对阵样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
         figure.text(.045,.085,"蓝色＝每行第一方卡组获胜，橙色＝对手获胜；* 少于10场，样本较少。",fontproperties=f,fontsize=11,color="#53647b")
-        figure.text(.045,.055,"至少一方采集时前100；按官方胜者核对，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=10,color="#53647b")
+        figure.text(.045,.055,"至少一方采集时前500；按官方胜者核对，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=10,color="#53647b")
         figure.text(.045,.025,"查询：卡组对阵胜率 [天数1～90] [页码]　｜　每天更新一次；灰色内战不计算方向胜率。",fontproperties=f,fontsize=10,color="#53647b")
         return png(figure)

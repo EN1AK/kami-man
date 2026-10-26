@@ -28,7 +28,7 @@ def test_render_png_with_chinese_and_empty_samples(kind):
     assert len(raw)<4*1024**2
 
 def stub(monkeypatch,calls):
-    async def players(session):calls.append("ranking");await asyncio.sleep(0);return ["fixture"]
+    async def players(session,store):calls.append("ranking");await asyncio.sleep(0);return ["fixture"]
     monkeypatch.setattr(reports,"top_players",players)
     monkeypatch.setattr(reports,"card_usage",lambda *args:usage(22))
     monkeypatch.setattr(reports,"card_names",lambda *args:{1:"测试卡"})
@@ -107,7 +107,7 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
         async def send(self,event,message):sent.append(message)
     assert not sent and not calls
     async def run():
-        await registered["前百卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
+        await registered["前五百卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7 2"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
     asyncio.run(run())

@@ -9,17 +9,40 @@ import aiohttp
 from .replay import ObservedDeck
 from .presentation import classify
 
-async def top_players(session):
-    async with session.get("https://sapi.moecube.com:444/ygopro/arena/users",params={"o":"pt"},
-            timeout=aiohttp.ClientTimeout(total=15)) as response:
-        response.raise_for_status()
-        rows=await response.json()
-    if not isinstance(rows,list) or len(rows)<100:
-        raise ValueError("官方前100榜单不完整")
-    names=[x.get("username") if isinstance(x,dict) else None for x in rows[:100]]
-    if any(not isinstance(x,str) or not x for x in names) or len(set(names))!=100:
-        raise ValueError("官方榜单玩家格式异常")
-    return names
+class RankedPlayers(list):
+    """Only archived players need rank checks; unobserved top-500 remain missing."""
+    def __init__(self,players,unverified=0):
+        super().__init__(players)
+        self.unverified=unverified
+
+async def top_players(session,store):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import asyncio
+    from .ranking import RankCache
+    from .store import atomic_bytes
+    day=datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    path=store.root.parent/"mycard_reports"/"ranking.json"
+    try:
+        cached=json.loads(path.read_text(encoding="utf-8"))
+        if cached.get("day")==day and cached.get("scope")==500:
+            return RankedPlayers(cached["players"],cached["unverified"])
+    except (OSError,ValueError,KeyError,TypeError):pass
+    def candidates():
+        with store.connect() as db:
+            return [r[0] for r in db.execute("SELECT DISTINCT player FROM observations ORDER BY player")]
+    players=await asyncio.to_thread(candidates)
+    rank=RankCache(session)
+    try:
+        results=await asyncio.gather(*(rank.rank(p) for p in players),return_exceptions=True)
+    finally:await rank.close()
+    unverified=sum(type(r) is not int for r in results)
+    if players and (unverified==len(players) or unverified>max(5,len(players)*.05)):
+        raise ValueError("官方排名核验失败过多，请稍后再试")
+    selected=[p for p,r in zip(players,results) if type(r) is int and 1<=r<=500]
+    body=dict(day=day,scope=500,players=selected,unverified=unverified)
+    await asyncio.to_thread(atomic_bytes,path,json.dumps(body,ensure_ascii=False).encode("utf-8"))
+    return RankedPlayers(selected,unverified)
 
 def usable(deck):
     return isinstance(deck,dict) and isinstance(deck.get("main"),list) and isinstance(deck.get("extra"),list) and (
@@ -28,6 +51,8 @@ def usable(deck):
 
 def card_usage(store,players,now=None,names=None):
     now=time.time() if now is None else now
+    population=500 if isinstance(players,RankedPlayers) else len(set(players))
+    rank_unverified=getattr(players,"unverified",0)
     players=list(dict.fromkeys(players))
     decks=[]
     codes=set()
@@ -75,7 +100,7 @@ def card_usage(store,players,now=None,names=None):
                 for card,n in extra_counts.items()]
     for entries in (rows,extra_rows):
         entries.sort(key=lambda x:(-x["players"],-x["copies"],x["card"]))
-    return dict(total=len(players),covered=covered,missing=len(players)-covered,stale=stale,
+    return dict(total=population,covered=covered,missing=max(0,population-covered),stale=stale,rank_unverified=rank_unverified,
                 side_observed=side_observed,oldest=min(times) if times else None,newest=max(times) if times else None,
                 total_cards=len(rows),extra_total_cards=len(extra_rows),rows=rows[:100],extra_rows=extra_rows[:100])
 
@@ -112,7 +137,7 @@ def matchup_stats(store,days=30,now=None,classifier=classify):
         return cache[key]
     for row in rows:
         ranks=json.loads(row["ranks"])
-        if not any(type(rank) is int and 1<=rank<=100 for rank in ranks.values()):
+        if not any(type(rank) is int and 1<=rank<=500 for rank in ranks.values()):
             continue
         eligible+=1;players=json.loads(row["players"])
         if row["winner"] not in players:
@@ -143,9 +168,9 @@ def page_rows(rows,page,size=20):
 def usage_text(data,page=1,names=None,extra=False):
     rows,pages=page_rows(data["extra_rows"] if extra else data["rows"],page)
     names=names or {}
-    title="前百额外卡组使用率" if extra else "前百主卡/Side使用率"
+    title="前五百额外卡组使用率" if extra else "前五百主卡/Side使用率"
     lines=[f"{title}｜前100张｜{page}/{pages}页",
-        f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人。",
+        f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人；排名未核验 {data.get('rank_unverified',0)} 人。",
         "每人最新卡组版本；同版本Side合并已观察换入。按玩家人数计算投入率，非卡片张数占比。"]
     for i,row in enumerate(rows,(page-1)*20+1):
         name=row.get("name") or names.get(row["card"]) or str(row["card"])
@@ -167,8 +192,8 @@ def usage_text(data,page=1,names=None,extra=False):
 
 def matchup_text(data,page=1):
     rows,pages=page_rows(data["rows"],page)
-    lines=[f"前百卡组分类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
-        f"采集时至少一方前100的完整归档 {data['eligible']} 场；有效样本 {data['used']} 场。",
+    lines=[f"前五百卡组分类对阵胜率｜近{data['days']}天｜{page}/{pages}页",
+        f"采集时至少一方前500的完整归档 {data['eligible']} 场；有效样本 {data['used']} 场。",
         f"未核实胜负 {data['missing_result']}；卡组不完整 {data['missing_deck']}；分类未识别 {data['unclassified']}。",
         "每场Match只计一次；按官方胜者核对，不以录像结束推断胜负；分类沿用当前卡组命名规则。"]
     for row in rows:

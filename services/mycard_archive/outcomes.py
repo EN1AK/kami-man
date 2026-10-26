@@ -53,7 +53,7 @@ class MatchResults:
                 WHERE m.status='complete' AND m.normal_end=1 AND m.first_seen>=?
                 AND r.winner IS NULL AND (r.checked IS NULL OR r.checked<?)
                 ORDER BY r.checked IS NOT NULL,
-                NOT EXISTS(SELECT 1 FROM json_each(m.ranks) j WHERE j.type='integer' AND j.value BETWEEN 1 AND 100),
+                NOT EXISTS(SELECT 1 FROM json_each(m.ranks) j WHERE j.type='integer' AND j.value BETWEEN 1 AND 500),
                 m.first_seen DESC LIMIT ?""",(now-90*86400,now-1800,limit)).fetchall()
         return [dict(row) for row in rows]
 

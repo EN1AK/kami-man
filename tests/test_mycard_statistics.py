@@ -125,7 +125,7 @@ def test_matchups_use_confirmed_matches_not_replay_count(tmp_path):
     archived(store,"win",now-1000,winner="Alice")
     archived(store,"loss",now-900,winner="Bob")
     archived(store,"unverified",now-800)
-    archived(store,"not-top100",now-700,ranks={"Alice":101,"Bob":200},winner="Alice")
+    archived(store,"not-top500",now-700,ranks={"Alice":501,"Bob":600},winner="Alice")
     archived(store,"mirror",now-600,cards=(1,1),winner="Alice")
     archived(store,"unknown",now-500,cards=(4,2),winner="Alice")
     def classify(deck,rules):
@@ -140,10 +140,10 @@ def test_matchups_use_confirmed_matches_not_replay_count(tmp_path):
     with pytest.raises(ValueError):matchup_stats(store,days=91)
 
 
-def test_pending_prioritizes_top100(tmp_path):
+def test_pending_prioritizes_top500(tmp_path):
     now=time.time();store=ArchiveStore(tmp_path);results=MatchResults(store)
-    archived(store,"new-outside",now-100,ranks={"Alice":200,"Bob":300})
-    expected=archived(store,"older-top100",now-1000,ranks={"Alice":100})
+    archived(store,"new-outside",now-100,ranks={"Alice":600,"Bob":700})
+    expected=archived(store,"older-top500",now-1000,ranks={"Alice":500})
     assert results.pending(limit=1,now=now)[0]["id"]==expected
 
 
@@ -163,9 +163,10 @@ def test_commands_register_permissions_and_persist_without_live_collector(tmp_pa
     store=ArchiveStore(tmp_path)
     commands.register_commands(lambda:store,lambda:None)
     assert len(registry)==6
+    assert "前百卡片使用率" in registry["前五百卡片使用率"].options["aliases"]
     for name in ("卡组采集","停止卡组采集","卡组采集列表"):
         assert registry[name].options["permission"] is SUPERUSER
-    assert "permission" not in registry["前百卡片使用率"].options
+    assert "permission" not in registry["前五百卡片使用率"].options
     sent=[]
     class Bot:
         async def send(self,event,message):sent.append(str(message))
@@ -256,3 +257,47 @@ def test_unknown_names_stay_separate_and_large_observed_counts_explicit():
     assert len(data["extra_rows"])==2
     for row in data["rows"]+data["extra_rows"]:
         assert sum(row["distribution"].values())==row["players"]
+
+
+def test_matchups_accept_rank500_and_exclude_rank501(tmp_path):
+    store=ArchiveStore(tmp_path);now=time.time()
+    archived(store,"boundary-in",now-1000,ranks={"Alice":500,"Bob":800},winner="Alice")
+    archived(store,"boundary-out",now-900,ranks={"Alice":501,"Bob":800},winner="Alice")
+    data=matchup_stats(store,now=now,classifier=lambda d,r:{1:"A",2:"B"}[d.main[0]])
+    assert data["eligible"]==data["used"]==1
+
+
+
+def test_top500_checks_current_ranks_and_caches_daily(tmp_path,monkeypatch):
+    from services.mycard_archive.statistics import top_players,RankedPlayers
+    from services.mycard_archive.ranking import RankCache
+    store=ArchiveStore(tmp_path/"archive")
+    archived(store,"fixture",100)
+    calls=[]
+    async def rank(self,p):calls.append(p);return {"Alice":500,"Bob":501}[p]
+    monkeypatch.setattr(RankCache,"rank",rank)
+    first=asyncio.run(top_players(None,store))
+    second=asyncio.run(top_players(None,store))
+    assert isinstance(first,RankedPlayers) and first==second==["Alice"]
+    assert len(calls)==2
+    data=card_usage(store,first,now=1000,names={})
+    assert data["total"]==500 and data["covered"]==1 and data["missing"]==499
+
+
+def test_top500_unverified_ranks_are_missing_and_outage_not_cached(tmp_path,monkeypatch):
+    from services.mycard_archive.statistics import top_players
+    from services.mycard_archive.ranking import RankCache
+    store=ArchiveStore(tmp_path/"archive");archived(store,"fixture",100)
+    async def rank(self,p):
+        if p=="Bob":raise ValueError("unavailable")
+        return 400
+    monkeypatch.setattr(RankCache,"rank",rank)
+    players=asyncio.run(top_players(None,store))
+    data=card_usage(store,players,now=1000,names={})
+    assert data["rank_unverified"]==1 and data["covered"]==1
+    (tmp_path/"mycard_reports"/"ranking.json").unlink()
+    for i in range(4):archived(store,f"more{i}",200+i,players=(f"P{i}",f"Q{i}"))
+    async def fail(self,p):raise ValueError("unavailable")
+    monkeypatch.setattr(RankCache,"rank",fail)
+    with pytest.raises(ValueError):asyncio.run(top_players(None,store))
+    assert not (tmp_path/"mycard_reports"/"ranking.json").exists()
