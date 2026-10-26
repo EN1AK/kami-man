@@ -183,4 +183,6 @@ async def top_deck_info(bot:Bot,event:MessageEvent):
 
 # Register statistics/target commands using the same live archive store and collector.
 from services.mycard_archive.commands import register_commands
-register_commands(library, lambda: _collector)
+_chart_service = register_commands(library, lambda: _collector)
+from services.mycard_archive.report_schedule import register_daily_refresh
+register_daily_refresh(_chart_service)

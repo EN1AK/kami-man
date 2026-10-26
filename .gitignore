@@ -53,3 +53,6 @@ data/mention_routes.db*
 
 # Private-chat meme counters (runtime only)
 data/private_memes.db*
+
+# Bounded daily aggregate chart cache
+/data/mycard_reports/

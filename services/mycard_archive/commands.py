@@ -1,11 +1,13 @@
 """QQ commands registered in the archive plugin's existing lifecycle."""
 import asyncio
+import base64
 import time
 import aiohttp
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot,MessageEvent,Message,MessageSegment
 from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
+from .reports import ChartReports
 from .tracking import TrackingStore
 from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,usage_text,matchup_stats,matchup_text
@@ -17,6 +19,12 @@ def register_commands(library,collector):
     targets=on_command("卡组采集列表",aliases={"MyCard采集列表"},permission=SUPERUSER,priority=5,block=True)
     usage=on_command("前百卡片使用率",aliases={"MyCard卡片使用率"},priority=5,block=True)
     matchups=on_command("卡组对阵胜率",aliases={"MyCard对阵胜率"},priority=5,block=True)
+    reports=None
+    def report_service():
+        nonlocal reports
+        if reports is None:reports=ChartReports(library())
+        return reports
+
     cache={}
     lock=asyncio.Lock()
 
@@ -72,8 +80,15 @@ def register_commands(library,collector):
     @usage.handle()
     async def show_usage(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
         try:
-            value=args.extract_plain_text().strip()
-            page=int(value) if value else 1
+            parts=args.extract_plain_text().split()
+            text_mode=bool(parts and parts[-1]=="文字")
+            if text_mode:parts.pop()
+            if len(parts)>1:raise ValueError("参数过多")
+            page=int(parts[0]) if parts else 1
+            if not text_mode:
+                raw=await report_service().image("usage",page)
+                await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
+                return
             async def build():
                 async with aiohttp.ClientSession() as session:
                     names=await top_players(session)
@@ -91,10 +106,16 @@ def register_commands(library,collector):
     async def show_matchups(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
         try:
             parts=args.extract_plain_text().split()
+            text_mode=bool(parts and parts[-1]=="文字")
+            if text_mode:parts.pop()
             if len(parts)>2:raise ValueError("参数过多")
             days=int(parts[0]) if parts else 30
             page=int(parts[1]) if len(parts)>1 else 1
             if not 1<=days<=90 or page<1:raise ValueError("参数范围")
+            if not text_mode:
+                raw=await report_service().image("matchups",page,days)
+                await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
+                return
             async def build():
                 await asyncio.to_thread(MatchResults,library())
                 return await asyncio.to_thread(matchup_stats,library(),days)
@@ -105,3 +126,5 @@ def register_commands(library,collector):
         except Exception:
             text="对阵统计暂不可用，请稍后再试。"
         await send(bot,event,text)
+
+    return report_service
