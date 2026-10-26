@@ -26,32 +26,52 @@ def usable(deck):
         40<=len(deck["main"])<=60 and len(deck["extra"])<=15
         and all(type(x) is int and x>0 for x in deck["main"]+deck["extra"]))
 
-def card_usage(store,players,now=None):
+def card_usage(store,players,now=None,names=None):
     now=time.time() if now is None else now
     players=list(dict.fromkeys(players))
-    main_counts,side_counts,total_counts,extra_counts=Counter(),Counter(),Counter(),Counter()
-    main_copies,side_copies,extra_copies=Counter(),Counter(),Counter()
-    covered=stale=side_observed=0
-    times=[]
+    decks=[]
+    codes=set()
     for player in players:
         deck=store.latest(player)
-        if not deck or not usable(deck):
-            continue
+        if not deck or not usable(deck):continue
         side=deck.get("side",[])
-        if not isinstance(side,list) or any(type(c) is not int or c<=0 for c in side):
-            side=[]
+        if not isinstance(side,list) or any(type(c) is not int or c<=0 for c in side):side=[]
+        decks.append((deck,side))
+        codes.update(deck["main"]+deck["extra"]+side)
+    names=card_names(codes) if names is None else names
+    representatives={};canonical={};labels={}
+    for code in sorted(codes):
+        name=names.get(code)
+        name=name.strip() if isinstance(name,str) else ""
+        representative=representatives.setdefault(name,code) if name else code
+        canonical[code]=representative
+        if name:labels[representative]=name
+    main_counts,side_counts,total_counts,extra_counts=Counter(),Counter(),Counter(),Counter()
+    main_copies,side_copies,extra_copies=Counter(),Counter(),Counter()
+    distributions={};extra_distributions={}
+    covered=stale=side_observed=0
+    times=[]
+    for deck,side in decks:
         observed=deck.get("last_seen") or deck.get("first_seen") or now
         covered+=1;times.append(observed);stale+=observed<now-7*86400
-        main,extra=deck["main"],deck["extra"]
+        main=[canonical[c] for c in deck["main"]]
+        extra=[canonical[c] for c in deck["extra"]]
+        side=[canonical[c] for c in side]
         side_observed+=bool(side)
         main_counts.update(set(main));side_counts.update(set(side))
         total_counts.update(set(main)|set(side));extra_counts.update(set(extra))
-        main_copies.update(main);side_copies.update(side);extra_copies.update(extra)
-    rows=[dict(card=card,players=n,main=main_counts[card],side=side_counts[card],
+        mc,sc,ec=Counter(main),Counter(side),Counter(extra)
+        main_copies.update(mc);side_copies.update(sc);extra_copies.update(ec)
+        for card in set(mc)|set(sc):
+            count=mc[card]+sc[card]
+            distributions.setdefault(card,Counter())[count if count<=3 else "4+"]+=1
+        for card,count in ec.items():
+            extra_distributions.setdefault(card,Counter())[count if count<=3 else "4+"]+=1
+    rows=[dict(card=card,name=labels.get(card),players=n,main=main_counts[card],side=side_counts[card],
                copies=main_copies[card]+side_copies[card],main_copies=main_copies[card],
-               side_copies=side_copies[card],rate=n/covered if covered else 0)
+               side_copies=side_copies[card],distribution=dict(distributions[card]),rate=n/covered if covered else 0)
           for card,n in total_counts.items()]
-    extra_rows=[dict(card=card,players=n,extra=n,copies=extra_copies[card],rate=n/covered if covered else 0)
+    extra_rows=[dict(card=card,name=labels.get(card),players=n,extra=n,copies=extra_copies[card],distribution=dict(extra_distributions[card]),rate=n/covered if covered else 0)
                 for card,n in extra_counts.items()]
     for entries in (rows,extra_rows):
         entries.sort(key=lambda x:(-x["players"],-x["copies"],x["card"]))
@@ -128,7 +148,7 @@ def usage_text(data,page=1,names=None,extra=False):
         f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人。",
         "每人最新卡组版本；同版本Side合并已观察换入。按玩家人数计算投入率，非卡片张数占比。"]
     for i,row in enumerate(rows,(page-1)*20+1):
-        name=names.get(row["card"]) or str(row["card"])
+        name=row.get("name") or names.get(row["card"]) or str(row["card"])
         if extra:
             lines.append(f"{i}. {name}｜额外使用率 {row['rate']:.1%}（{row['players']}/{data['covered']}人），共{row['copies']}张")
         else:
@@ -137,6 +157,10 @@ def usage_text(data,page=1,names=None,extra=False):
                          f"｜观测Side {row['side']/den:.1%}（{row['side']}人/{row['side_copies']}张）"
                          f"｜总使用率 {row['rate']:.1%}（{row['players']}/{data['covered']}人）")
     if not rows:lines.append("暂无完整卡组样本。")
+    for row in rows:
+        distribution=row.get("distribution",{})
+        if distribution:
+            lines.append((row.get("name") or names.get(row["card"]) or str(row["card"]))+" 张数分布（携带者中）："+" / ".join(f"{n}张 {distribution.get(n,distribution.get(str(n),0))/row['players']:.1%}" for n in (1,2,3))+ (f" / 4+张 {distribution['4+']/row['players']:.1%}" if distribution.get("4+") else ""))
     lines.append("Side不完整，未曝光备牌未知；总使用率是主卡与已观测Side携带人数的去重并集，属于观测下界。"
                  if not extra else "额外卡组单独统计，不混入主卡/Side总使用率。")
     return "\n".join(lines)

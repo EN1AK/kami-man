@@ -120,3 +120,14 @@ def test_extra_chart_uses_separate_rows():
     data["extra_rows"]=[dict(card=9,players=40,copies=40,rate=.5)]
     raw=charts.render_extra(data,{9:"额外测试卡"},"2026-10-26 北京时间")
     assert Image.open(BytesIO(raw)).format=="PNG"
+
+
+@pytest.mark.parametrize("distribution",[{1:1,2:1,3:2},{"1":1,"2":1,"3":2}])
+def test_copy_distribution_uses_carriers_and_survives_json(distribution):
+    value=charts.copy_text({"players":4,"distribution":distribution})
+    assert "1张 25.0%" in value and "2张 25.0%" in value and "3张 50.0%" in value
+    assert "4+" not in value
+
+
+def test_copy_distribution_keeps_large_observed_bucket():
+    assert "4+张 50.0%" in charts.copy_text({"players":2,"distribution":{1:1,"4+":1}})

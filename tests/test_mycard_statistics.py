@@ -220,6 +220,39 @@ def test_each_card_list_is_limited_to_top100(tmp_path):
         value={"player":player,"main":list(range(1000+i*40,1040+i*40)),"extra":list(range(10000+i*15,10015+i*15)),"side":[]}
         with store.connect() as db:
             db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player=?",(json.dumps(value),key,player))
-    data=card_usage(store,players,now=1000)
+    data=card_usage(store,players,now=1000,names={})
     assert data["total_cards"]==320 and data["extra_total_cards"]==120
     assert len(data["rows"])==len(data["extra_rows"])==100
+
+
+def test_same_names_merge_before_player_and_copy_counts():
+    decks={
+        "A":{"main":[1,2]+[900]*38,"side":[3],"extra":[11,12]},
+        "B":{"main":[2]+[900]*39,"side":[],"extra":[12]},
+        "C":{"main":[1,3]+[900]*38,"side":[],"extra":[11]*3},
+        "D":{"main":[900]*40,"side":[],"extra":[]},
+    }
+    store=SimpleNamespace(latest=decks.get)
+    data=card_usage(store,list(decks)+["Missing"],now=1000,
+                    names={1:" 测试卡 ",2:"测试卡",3:"测试卡",11:"额外卡",12:"额外卡"})
+    row=next(r for r in data["rows"] if r["card"]==1)
+    assert row["name"]=="测试卡" and row["players"]==3 and row["rate"]==.75
+    assert row["main"]==3 and row["side"]==1 and row["copies"]==6
+    assert row["distribution"]=={1:1,2:1,3:1}
+    assert not {2,3}&{r["card"] for r in data["rows"]}
+    extra=next(r for r in data["extra_rows"] if r["card"]==11)
+    assert extra["players"]==3 and extra["copies"]==6
+    assert extra["distribution"]=={1:1,2:1,3:1}
+    assert data["covered"]==4 and data["missing"]==1
+    assert "1张 33.3%" in usage_text(data)
+
+
+def test_unknown_names_stay_separate_and_large_observed_counts_explicit():
+    store=SimpleNamespace(latest=lambda p:{"main":[1]*4+[2]+[3]*35,"side":[],"extra":[4,5]})
+    data=card_usage(store,["A"],now=1000,names={})
+    rows={r["card"]:r for r in data["rows"]}
+    assert set(rows)=={1,2,3} and rows[1]["distribution"]=={"4+":1}
+    assert rows[2]["distribution"]=={1:1}
+    assert len(data["extra_rows"])==2
+    for row in data["rows"]+data["extra_rows"]:
+        assert sum(row["distribution"].values())==row["players"]
