@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 import threading
 import textwrap
-from .statistics import page_rows
+from .statistics import page_rows,matchup_matrix
 
 _RENDER_LOCK=threading.Lock()
 
@@ -125,31 +125,51 @@ def render_extra(data,names,stamp,page=1):
         return png(figure)
 
 def render_matchups(data,stamp,page=1):
-    rows,pages=page_rows(data["rows"],page)
-    labels=[label(r["a"],17) if r["a"]==r["b"] else label(r["a"],17)+"\nvs "+label(r["b"],15) for r in rows]
-    positions,total=row_layout(labels)
+    if page!=1:raise ValueError("对阵热力图只有1页")
+    import numpy as np
+    from matplotlib.figure import Figure
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib.patches import Rectangle
+    matrix=matchup_matrix(data)
+    names=matrix["names"];count=len(names)
     with _RENDER_LOCK:
-        figure,ax,f=setup(total,f"卡组大类对阵胜率 · 近{data['days']}天 · 第{page}/{pages}页",
-            f"有效样本 {data['used']} 场 / 完整归档 {data['eligible']} 场；未核实胜负 {data['missing_result']} · 缺卡组 {data['missing_deck']} · 未识别 {data['unclassified']}",stamp)
-        for i,r in enumerate(rows):
-            y=positions[i]
-            n=r["matches"]
-            if r["a"]==r["b"]:
-                ax.barh(y,100,height=.56,color="#c7d0df")
-                note=f"内战 {n}场"
-            else:
-                rate=r["a_wins"]/n*100
-                alpha=.55 if n<10 else 1
-                ax.barh(y,rate,height=.56,color="#377ded",alpha=alpha)
-                ax.barh(y,100-rate,left=rate,height=.56,color="#e8ac5d",alpha=alpha)
-                note=f"{rate:.1f}%  ·  {r['a_wins']}胜{r['b_wins']}负"+(" *" if n<10 else "")
-            ax.text(103,y,note,fontproperties=f,fontsize=10,va="center",color="#15253d",clip_on=False)
-        if rows:
-            ax.set_yticks(positions);ax.set_yticklabels(labels,fontproperties=f,fontsize=10,color="#15253d");ax.set_ylim(total,0)
+        f=font()
+        figure=Figure(figsize=(21,21),dpi=140,facecolor="#f5f7fb")
+        figure.text(.045,.97,f"卡组大类对阵热力图 · 出场前20 · 近{data['days']}天",fontproperties=f,fontsize=25,weight="bold",color="#15253d",va="top")
+        figure.text(.955,.97,stamp,fontproperties=f,fontsize=10,color="#53647b",ha="right",va="top")
+        figure.text(.045,.94,f"有效样本 {data['used']} 场 · 图中双方均入选 {matrix['shown_matches']} 场 · 展示 {count} 类；按全部有效对局出场次数排序，内战双方各计一次。",fontproperties=f,fontsize=12,color="#53647b")
+        figure.text(.045,.918,f"行卡组对列卡组的胜率｜n＝该组合完整Match场数；未核实 {data['missing_result']} · 缺卡组 {data['missing_deck']} · 未识别 {data['unclassified']}",fontproperties=f,fontsize=11,color="#53647b")
+        ax=figure.add_axes([.20,.22,.68,.68])
+        if count:
+            cmap=LinearSegmentedColormap.from_list("matchup_winrate",["#b95724","#f9f9f5","#246db4"])
+            cmap.set_bad("#e1e5ed")
+            values=np.array([[np.nan if r is None else r*100 for r in row] for row in matrix["rates"]])
+            plot=ax.imshow(np.ma.masked_invalid(values),cmap=cmap,vmin=0,vmax=100,aspect="equal",interpolation="nearest")
+            ax.set_xticks(range(count));ax.set_yticks(range(count))
+            ax.set_xticklabels([label(f"{i+1}. {name}",11) for i,name in enumerate(names)],rotation=55,ha="right",rotation_mode="anchor",fontproperties=f,fontsize=10)
+            ax.set_yticklabels([label(f"{i+1}. {name}",14)+f"\n{matrix['appearances'][i]} 次" for i,name in enumerate(names)],fontproperties=f,fontsize=10)
+            ax.tick_params(length=0,pad=8,colors="#15253d")
+            ax.set_xticks(np.arange(-.5,count,1),minor=True);ax.set_yticks(np.arange(-.5,count,1),minor=True)
+            ax.grid(which="minor",color="#f5f7fb",linewidth=1.3);ax.tick_params(which="minor",length=0)
+            for i in range(count):
+                for j in range(count):
+                    n=matrix["samples"][i][j];rate=matrix["rates"][i][j]
+                    if i==j:
+                        ax.add_patch(Rectangle((j-.5,i-.5),1,1,facecolor="#c9d1df",edgecolor="#f5f7fb",linewidth=1.3))
+                        note=f"内战\nn={n}"
+                    elif rate is None:note="—"
+                    else:note=f"{rate:.0%}"+("*" if n<10 else "")+f"\nn={n}"
+                    color="#ffffff" if rate is not None and (rate<.2 or rate>.8) else "#15253d"
+                    ax.text(j,i,note,ha="center",va="center",fontproperties=f,fontsize=8.5,color=color)
+            for spine in ax.spines.values():spine.set_visible(False)
+            color_ax=figure.add_axes([.905,.28,.014,.56])
+            bar=figure.colorbar(plot,cax=color_ax,ticks=[0,25,50,75,100])
+            bar.ax.set_yticklabels(["0%","25%","50%","75%","100%"],fontproperties=f,fontsize=10)
+            bar.set_label("行方胜率",fontproperties=f,fontsize=11,labelpad=10)
+            bar.outline.set_visible(False)
         else:
-            ax.set_yticks([])
-            ax.text(.5,.5,"暂无可核实的对阵样本",transform=ax.transAxes,fontproperties=f,fontsize=16,ha="center")
-        figure.text(.045,.085,"蓝色＝每行第一方卡组获胜，橙色＝对手获胜；* 少于10场，样本较少。",fontproperties=f,fontsize=11,color="#53647b")
-        figure.text(.045,.055,"核心体系大类归并；至少一方采集时前500，按官方胜者核对，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=10,color="#53647b")
-        figure.text(.045,.025,"查询：卡组对阵胜率 [天数1～90] [页码]　｜　每天更新一次；灰色内战不计算方向胜率。",fontproperties=f,fontsize=10,color="#53647b")
+            ax.set_axis_off();ax.text(.5,.5,"暂无可核实的对阵样本",transform=ax.transAxes,fontproperties=f,fontsize=20,ha="center")
+        figure.text(.045,.075,"蓝色＝行方胜率高，橙色＝行方胜率低，浅色＝接近50%；* 少于10场，样本较少。灰色“—”＝无样本。",fontproperties=f,fontsize=12,color="#53647b")
+        figure.text(.045,.05,"对角线仅列内战场数，不填50%胜率。至少一方采集时前500；官方核实胜负，每场Match只计一次。观战样本非全平台胜率。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.025,"查询：卡组对阵胜率 [天数1～90]　｜　热力图共一页，每天更新；完整列表可加“文字”。",fontproperties=f,fontsize=11,color="#53647b")
         return png(figure)

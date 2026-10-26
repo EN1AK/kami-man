@@ -82,7 +82,7 @@ def test_pruning_retention_and_size_does_not_delete_other_files(tmp_path,monkeyp
 def test_chart_parameters_rejected_before_network(tmp_path):
     service=reports.ChartReports(ArchiveStore(tmp_path/"archive"),tmp_path/"charts")
     async def run():
-        for args in (("unknown",1,30),("usage",0,30),("matchups",1,91)):
+        for args in (("unknown",1,30),("usage",0,30),("matchups",1,91),("matchups",2,30)):
             with pytest.raises(ValueError):await service.image(*args)
     asyncio.run(run())
 
@@ -108,10 +108,10 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
     assert not sent and not calls
     async def run():
         await registered["卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
-        await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7 2"))
+        await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
     asyncio.run(run())
-    assert calls==[("usage",1,30),("matchups",2,7),("extra",1,30)]
+    assert calls==[("usage",1,30),("matchups",1,7),("extra",1,30)]
     assert len(sent)==3 and all(m.type=="image" for m in sent)
 
 
@@ -131,3 +131,32 @@ def test_copy_distribution_uses_carriers_and_survives_json(distribution):
 
 def test_copy_distribution_keeps_large_observed_bucket():
     assert "4+张 50.0%" in charts.copy_text({"players":2,"distribution":{1:1,"4+":1}})
+
+
+
+def test_matchup_matrix_direction_mirror_and_missing_samples():
+    from services.mycard_archive.statistics import matchup_matrix
+    data=dict(rows=[dict(a="A",b="B",matches=10,a_wins=3,b_wins=7),
+                    dict(a="A",b="A",matches=5,a_wins=0,b_wins=0),
+                    dict(a="C",b="C",matches=1,a_wins=0,b_wins=0)])
+    m=matchup_matrix(data)
+    assert m["names"]==["A","B","C"] and m["appearances"]==[20,10,2]
+    assert m["rates"][0][1]==.3 and m["rates"][1][0]==.7
+    assert m["rates"][0][0] is None and m["samples"][0][0]==5
+    assert m["rates"][0][2] is None and m["samples"][0][2]==0
+    assert m["shown_matches"]==16
+
+
+def test_matchup_matrix_only_top20_and_counts_unique_included_matches():
+    from services.mycard_archive.statistics import matchup_matrix
+    rows=[dict(a=f"P{i:02}",b=f"P{i:02}",matches=i+1,a_wins=0,b_wins=0) for i in range(21)]
+    m=matchup_matrix(dict(rows=rows))
+    assert len(m["names"])==20 and m["names"][0]=="P20" and "P00" not in m["names"]
+    assert m["shown_matches"]==sum(range(2,22))
+    assert len(m["rates"])==20 and all(len(r)==20 for r in m["rates"])
+
+
+def test_matchup_heatmap_empty_and_invalid_page():
+    data=matchup();data["rows"]=[]
+    assert Image.open(BytesIO(charts.render_matchups(data,"北京时间"))).format=="PNG"
+    with pytest.raises(ValueError):charts.render_matchups(matchup(),"北京时间",2)

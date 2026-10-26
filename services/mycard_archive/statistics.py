@@ -177,6 +177,27 @@ def matchup_stats(store,days=30,now=None,classifier=classify_archetype):
     return dict(days=days,eligible=eligible,used=used,missing_result=missing_result,
                 missing_deck=missing_deck,unclassified=unclassified,rows=ordered)
 
+
+def matchup_matrix(data,limit=20):
+    """Rank by all eligible appearances; mirror contributes two appearances, one match."""
+    appearances=Counter()
+    for row in data["rows"]:
+        appearances[row["a"]]+=row["matches"]
+        appearances[row["b"]]+=row["matches"]
+    names=sorted(appearances,key=lambda name:(-appearances[name],name))[:limit]
+    index={name:i for i,name in enumerate(names)}
+    count=len(names)
+    samples=[[0]*count for _ in names];wins=[[0]*count for _ in names]
+    shown=0
+    for row in data["rows"]:
+        if row["a"] not in index or row["b"] not in index:continue
+        a,b=index[row["a"]],index[row["b"]];n=row["matches"]
+        shown+=n;samples[a][b]+=n
+        if a!=b:
+            samples[b][a]+=n;wins[a][b]+=row["a_wins"];wins[b][a]+=row["b_wins"]
+    rates=[[wins[i][j]/samples[i][j] if i!=j and samples[i][j] else None for j in range(count)] for i in range(count)]
+    return dict(names=names,appearances=[appearances[n] for n in names],samples=samples,rates=rates,shown_matches=shown)
+
 def page_rows(rows,page,size=20):
     pages=max(1,(len(rows)+size-1)//size)
     if type(page) is not int or not 1<=page<=pages:

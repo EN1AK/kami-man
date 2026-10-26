@@ -13,7 +13,7 @@ from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,matchup_stats
 
 CHINA=ZoneInfo("Asia/Shanghai")
-SNAPSHOT_VERSION=8
+SNAPSHOT_VERSION=9
 CACHE_LIMIT=32*1024**2
 FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|matchups-[1-9]\d?)(?:-v[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
 
@@ -81,6 +81,7 @@ class ChartReports:
     async def image(self,kind,page=1,days=30):
         if kind not in {"usage","extra","matchups"} or type(page) is not int or page<1 or type(days) is not int or not 1<=days<=90:
             raise ValueError("图表参数无效")
+        if kind=="matchups" and page!=1:raise ValueError("对阵热力图只有1页")
         async with self.lock:
             now=self.clock()
             snapshot=await self.snapshot("usage" if kind=="extra" else kind,days,now)

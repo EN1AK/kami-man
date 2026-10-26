@@ -130,7 +130,7 @@ def register_commands(library,collector):
             data=await cached(("matchups",days),build)
             text=matchup_text(data,page)
         except ValueError:
-            text="用法：卡组对阵胜率 [天数1～90] [页码]，默认近30天。页码须在实际范围内。"
+            text="用法：卡组对阵胜率 [天数1～90]，默认近30天。前20大类热力图只有一页；完整列表：卡组对阵胜率 [天数] [页码] 文字。"
         except Exception:
             text="对阵统计暂不可用，请稍后再试。"
         await send(bot,event,text)
