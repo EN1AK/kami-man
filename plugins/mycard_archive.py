@@ -179,3 +179,8 @@ async def top_deck_info(bot:Bot,event:MessageEvent):
     except Exception as exc:
         logger.warning("[mycard_archive] 前排信息转发失败："+type(exc).__name__)
         await top_decks.finish("QQ 未确认前排信息发送结果，请检查聊天记录后重试。")
+
+
+# Register statistics/target commands using the same live archive store and collector.
+from services.mycard_archive.commands import register_commands
+register_commands(library, lambda: _collector)

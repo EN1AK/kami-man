@@ -11,6 +11,8 @@ import aiohttp
 from nonebot import logger
 from .protocol import Credentials,CredentialsUnavailable,watch
 from .ranking import RankCache
+from .tracking import TrackingStore
+from .outcomes import MatchResults
 from .store import ArchiveStore,ArchiveLimitReached,DEFAULT_ARCHIVE_LIMIT
 
 @dataclass(frozen=True)
@@ -76,6 +78,7 @@ class Collector:
     def __init__(self,config,*,store=None,watch_room=watch):
         self.config=config;self.store=store or ArchiveStore(config.root,config.archive_limit_bytes);self.watch_room=watch_room
         self.rooms={};self.session=None;self.rank=None;self.credentials=None;self.ws_task=None
+        self.tracked=set();self.tracking=None;self.results=None;self.result_task=None
         self.closed=False;self.ws_connected=False;self.initialized=False;self.last_error="";self.excluded=0
         self.slots=asyncio.Semaphore(config.concurrency);self.join_lock=asyncio.Lock()
         self.next_join=0.;self.cooldown_until=0.;self.failed_joins=0
@@ -106,7 +109,40 @@ class Collector:
         self.session=aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=12))
         self.rank=RankCache(self.session,self.config.cutoff)
         self.credentials=Credentials(self.config.credentials,self.session)
+        self.tracking=await asyncio.to_thread(TrackingStore,self.store)
+        self.tracked=set(await asyncio.to_thread(self.tracking.players))
+        self.results=await asyncio.to_thread(MatchResults,self.store)
+        self.result_task=asyncio.create_task(self.reconcile_results(),name="mycard-result-reconciliation")
         self.ws_task=asyncio.create_task(self.feed(),name="mycard-archive-room-feed")
+
+    async def set_target(self,player,enabled=True):
+        if self.tracking is None:
+            self.tracking=await asyncio.to_thread(TrackingStore,self.store)
+        player=await asyncio.to_thread(self.tracking.set,player,enabled)
+        self.tracked=set(await asyncio.to_thread(self.tracking.players))
+        if enabled:
+            for state in list(self.rooms.values()):
+                if player in state.players and not state.ended.is_set() and state.match_id is None and (
+                        state.task is None or state.task.done()):
+                    state.task=asyncio.create_task(self.collect(state),name="mycard-target-room")
+
+    async def qualify(self,players):
+        targeted=set(players)&self.tracked
+        try:
+            qualifying,ranks=await self.rank.qualifying(players)
+        except Exception:
+            if not targeted:raise
+            qualifying,ranks={},{}
+        return dict(qualifying,**{p:ranks.get(p) for p in targeted}),ranks
+
+    async def reconcile_results(self):
+        while not self.closed:
+            try:
+                count=await self.results.reconcile(self.session)
+                if count:logger.info("[mycard_archive] 官方胜负已核实 {} 场",count)
+            except asyncio.CancelledError:raise
+            except Exception as exc:self.error("官方胜负核实暂不可用："+type(exc).__name__)
+            await asyncio.sleep(30)
 
     async def feed(self):
         backoff=2
@@ -196,7 +232,7 @@ class Collector:
                     self.error("MyCard 归档达到容量上限，录像采集暂停")
                     if await pause_or_end(state.ended,60):return
                     continue
-                try:qualifying,ranks=await self.rank.qualifying(state.players);break
+                try:qualifying,ranks=await self.qualify(state.players);break
                 except Exception:
                     self.error("玩家名次暂不可用，等待核实后再观战")
                     if await pause_or_end(state.ended,60):return
@@ -264,16 +300,19 @@ class Collector:
         offloaded=await asyncio.to_thread(self.store.offload_count)
         quota=f"归档空间：{used/1024**3:.2f}/{limit/1024**3:.0f} GiB；{'已达上限，采集暂停' if used>=self.store.capture_ceiling else '额度正常'}"
         eligible=sum(state.match_id is not None and state.task is not None and not state.task.done() for state in self.rooms.values())
+        result_checked,result_matched=await asyncio.to_thread(self.results.progress) if self.results else (0,0)
         pending="已配置" if self.config.credentials.exists() else "未配置，录像采集等待登录凭据"
         return (f"MyCard 前 {self.config.cutoff} 归档\n公开房间监听：{'已连接' if self.ws_connected else '重连中'}\n"
-                f"观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.config.concurrency}\n"
+                f"指定采集名单 {len(self.tracked)} 人（不受排名限制）\n观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.config.concurrency}\n"
                 f"正常结束 {stats.get('complete',0)}；部分录像 {stats.get('partial',0)}；未收到录像 {stats.get('unavailable',0)}\n"
+                f"官方胜负已核实 {result_matched} 场（已尝试 {result_checked} 场）\n"
                 f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}；home 已转存 {offloaded} 场\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")
 
     async def close(self):
         self.closed=True
         tasks=[state.task for state in self.rooms.values() if state.task]
         if self.ws_task:tasks.append(self.ws_task)
+        if self.result_task:tasks.append(self.result_task)
         if self.capacity_task:tasks.append(self.capacity_task)
         for task in tasks:task.cancel()
         await asyncio.gather(*tasks,return_exceptions=True)
