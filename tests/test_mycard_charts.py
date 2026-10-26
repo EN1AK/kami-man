@@ -10,7 +10,7 @@ from services.mycard_archive import charts,reports
 from services.mycard_archive.store import ArchiveStore
 
 def usage(rows=2):
-    return dict(total=100,covered=80,missing=20,stale=1,
+    return dict(total=100,covered=80,missing=20,stale=1,extra_rows=[],
         rows=[dict(card=i+1,players=40,copies=80,main=40,extra=0,rate=.5) for i in range(rows)])
 
 def matchup():
@@ -63,7 +63,7 @@ def test_refresh_only_builds_two_default_images(tmp_path,monkeypatch):
     async def image(kind,page=1,days=30):called.append((kind,days));return b""
     monkeypatch.setattr(service,"image",image)
     asyncio.run(service.refresh())
-    assert called==[("usage",30),("matchups",30)]
+    assert called==[("usage",30),("extra",30),("matchups",30)]
 
 def test_pruning_retention_and_size_does_not_delete_other_files(tmp_path,monkeypatch):
     store=ArchiveStore(tmp_path/"archive");root=tmp_path/"charts";root.mkdir()
@@ -109,6 +109,14 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
     async def run():
         await registered["前百卡片使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7 2"))
+        await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
     asyncio.run(run())
-    assert calls==[("usage",1,30),("matchups",2,7)]
-    assert len(sent)==2 and all(m.type=="image" for m in sent)
+    assert calls==[("usage",1,30),("matchups",2,7),("extra",1,30)]
+    assert len(sent)==3 and all(m.type=="image" for m in sent)
+
+
+def test_extra_chart_uses_separate_rows():
+    data=usage(0)
+    data["extra_rows"]=[dict(card=9,players=40,copies=40,rate=.5)]
+    raw=charts.render_extra(data,{9:"额外测试卡"},"2026-10-26 北京时间")
+    assert Image.open(BytesIO(raw)).format=="PNG"

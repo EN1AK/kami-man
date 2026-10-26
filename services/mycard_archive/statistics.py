@@ -29,26 +29,35 @@ def usable(deck):
 def card_usage(store,players,now=None):
     now=time.time() if now is None else now
     players=list(dict.fromkeys(players))
-    counts,copies,main_counts,extra_counts=Counter(),Counter(),Counter(),Counter()
-    covered=stale=0
+    main_counts,side_counts,total_counts,extra_counts=Counter(),Counter(),Counter(),Counter()
+    main_copies,side_copies,extra_copies=Counter(),Counter(),Counter()
+    covered=stale=side_observed=0
     times=[]
-    with store.connect() as db:
-        for player in players:
-            row=db.execute("SELECT deck,observed FROM observations WHERE player=? ORDER BY observed DESC,match_id DESC LIMIT 1",(player,)).fetchone()
-            if not row:
-                continue
-            deck=json.loads(row["deck"])
-            if not usable(deck):
-                continue
-            covered+=1;times.append(row["observed"]);stale+=row["observed"]<now-7*86400
-            main,extra=deck["main"],deck["extra"]
-            counts.update(set(main+extra));copies.update(main+extra)
-            main_counts.update(set(main));extra_counts.update(set(extra))
-    rows=[dict(card=card,players=n,copies=copies[card],main=main_counts[card],extra=extra_counts[card],
-               rate=n/covered if covered else 0) for card,n in counts.items()]
-    rows.sort(key=lambda x:(-x["players"],-x["copies"],x["card"]))
+    for player in players:
+        deck=store.latest(player)
+        if not deck or not usable(deck):
+            continue
+        side=deck.get("side",[])
+        if not isinstance(side,list) or any(type(c) is not int or c<=0 for c in side):
+            side=[]
+        observed=deck.get("last_seen") or deck.get("first_seen") or now
+        covered+=1;times.append(observed);stale+=observed<now-7*86400
+        main,extra=deck["main"],deck["extra"]
+        side_observed+=bool(side)
+        main_counts.update(set(main));side_counts.update(set(side))
+        total_counts.update(set(main)|set(side));extra_counts.update(set(extra))
+        main_copies.update(main);side_copies.update(side);extra_copies.update(extra)
+    rows=[dict(card=card,players=n,main=main_counts[card],side=side_counts[card],
+               copies=main_copies[card]+side_copies[card],main_copies=main_copies[card],
+               side_copies=side_copies[card],rate=n/covered if covered else 0)
+          for card,n in total_counts.items()]
+    extra_rows=[dict(card=card,players=n,extra=n,copies=extra_copies[card],rate=n/covered if covered else 0)
+                for card,n in extra_counts.items()]
+    for entries in (rows,extra_rows):
+        entries.sort(key=lambda x:(-x["players"],-x["copies"],x["card"]))
     return dict(total=len(players),covered=covered,missing=len(players)-covered,stale=stale,
-                oldest=min(times) if times else None,newest=max(times) if times else None,rows=rows)
+                side_observed=side_observed,oldest=min(times) if times else None,newest=max(times) if times else None,
+                total_cards=len(rows),extra_total_cards=len(extra_rows),rows=rows[:100],extra_rows=extra_rows[:100])
 
 def card_names(codes):
     codes=list(dict.fromkeys(codes))
@@ -111,17 +120,25 @@ def page_rows(rows,page,size=20):
         raise ValueError(f"页码应为 1～{pages}")
     return rows[(page-1)*size:page*size],pages
 
-def usage_text(data,page=1,names=None):
-    rows,pages=page_rows(data["rows"],page)
+def usage_text(data,page=1,names=None,extra=False):
+    rows,pages=page_rows(data["extra_rows"] if extra else data["rows"],page)
     names=names or {}
-    lines=[f"当前前百卡片使用率｜{page}/{pages}页",
-        f"覆盖 {data['covered']}/{data['total']} 位玩家；缺失或卡组不完整 {data['missing']} 人；超过7天未更新 {data['stale']} 人。",
-        "每人最新一套观测卡组；使用率=携带人数/覆盖人数；统计主卡+额外，不统计不完整的Side。"]
+    title="前百额外卡组使用率" if extra else "前百主卡/Side使用率"
+    lines=[f"{title}｜前100张｜{page}/{pages}页",
+        f"覆盖 {data['covered']}/{data['total']} 人；缺失 {data['missing']} 人；超过7天未更新 {data['stale']} 人。",
+        "每人最新卡组版本；同版本Side合并已观察换入。按玩家人数计算投入率，非卡片张数占比。"]
     for i,row in enumerate(rows,(page-1)*20+1):
-        lines.append(f"{i}. {names.get(row['card']) or str(row['card'])}｜{row['rate']:.1%}（{row['players']}/{data['covered']}人），共{row['copies']}张；主{row['main']}人/额外{row['extra']}人")
-    if not rows:
-        lines.append("暂无完整卡组样本；需要先采集到前百玩家的对局。")
-    lines.append("这是已观测样本，不代表全部前百玩家的真实使用率。翻页：前百卡片使用率 2")
+        name=names.get(row["card"]) or str(row["card"])
+        if extra:
+            lines.append(f"{i}. {name}｜额外使用率 {row['rate']:.1%}（{row['players']}/{data['covered']}人），共{row['copies']}张")
+        else:
+            den=data["covered"] or 1
+            lines.append(f"{i}. {name}｜主卡 {row['main']/den:.1%}（{row['main']}人/{row['main_copies']}张）"
+                         f"｜观测Side {row['side']/den:.1%}（{row['side']}人/{row['side_copies']}张）"
+                         f"｜总使用率 {row['rate']:.1%}（{row['players']}/{data['covered']}人）")
+    if not rows:lines.append("暂无完整卡组样本。")
+    lines.append("Side不完整，未曝光备牌未知；总使用率是主卡与已观测Side携带人数的去重并集，属于观测下界。"
+                 if not extra else "额外卡组单独统计，不混入主卡/Side总使用率。")
     return "\n".join(lines)
 
 def matchup_text(data,page=1):

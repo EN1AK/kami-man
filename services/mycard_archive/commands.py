@@ -18,6 +18,7 @@ def register_commands(library,collector):
     stop=on_command("停止卡组采集",aliases={"MyCard停止采集"},permission=SUPERUSER,priority=5,block=True)
     targets=on_command("卡组采集列表",aliases={"MyCard采集列表"},permission=SUPERUSER,priority=5,block=True)
     usage=on_command("前百卡片使用率",aliases={"MyCard卡片使用率"},priority=5,block=True)
+    extra_usage=on_command("额外卡组使用率",aliases={"前百额外使用率","MyCard额外使用率"},priority=5,block=True)
     matchups=on_command("卡组对阵胜率",aliases={"MyCard对阵胜率"},priority=5,block=True)
     reports=None
     def report_service():
@@ -77,8 +78,7 @@ def register_commands(library,collector):
             cache[key]=(time.monotonic(),result)
             return result
 
-    @usage.handle()
-    async def show_usage(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
+    async def show_card_usage(bot,event,args,kind):
         try:
             parts=args.extract_plain_text().split()
             text_mode=bool(parts and parts[-1]=="文字")
@@ -86,7 +86,7 @@ def register_commands(library,collector):
             if len(parts)>1:raise ValueError("参数过多")
             page=int(parts[0]) if parts else 1
             if not text_mode:
-                raw=await report_service().image("usage",page)
+                raw=await report_service().image(kind,page)
                 await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
                 return
             async def build():
@@ -94,13 +94,21 @@ def register_commands(library,collector):
                     names=await top_players(session)
                 return await asyncio.to_thread(card_usage,library(),names)
             data=await cached("usage",build)
-            names=await asyncio.to_thread(card_names,[x["card"] for x in data["rows"]])
-            text=usage_text(data,page,names)
+            names=await asyncio.to_thread(card_names,[x["card"] for x in data["rows"]+data["extra_rows"]])
+            text=usage_text(data,page,names,kind=="extra")
         except ValueError:
             text="参数或榜单暂不可用；用法：前百卡片使用率 [页码]。请使用范围内的正整数页码。"
         except Exception:
             text="官方前百榜单或归档统计暂不可用，请稍后再试。"
         await send(bot,event,text)
+
+    @usage.handle()
+    async def show_usage(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
+        await show_card_usage(bot,event,args,"usage")
+
+    @extra_usage.handle()
+    async def show_extra_usage(bot:Bot,event:MessageEvent,args:Message=CommandArg()):
+        await show_card_usage(bot,event,args,"extra")
 
     @matchups.handle()
     async def show_matchups(bot:Bot,event:MessageEvent,args:Message=CommandArg()):

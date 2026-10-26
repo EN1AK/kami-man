@@ -106,14 +106,16 @@ def test_pending_only_complete_and_backoff(tmp_path):
     assert results.pending(now=now)==[]
     assert len(results.pending(now=now+1801))==1
 
-def test_usage_one_latest_deck_per_player_excludes_side(tmp_path):
+def test_usage_latest_version_includes_side_and_separates_extra(tmp_path):
     store=ArchiveStore(tmp_path)
     archived(store,"old",100,cards=(1,2))
     archived(store,"new",200,cards=(3,2))
     data=card_usage(store,["Alice","Bob","Missing"],now=1000)
     assert data["covered"]==2 and data["missing"]==1
     rows={x["card"]:x for x in data["rows"]}
-    assert 1 not in rows and 999 not in rows
+    assert 1 not in rows and 999 in rows
+    assert rows[999]["side"]==2 and rows[999]["rate"]==1
+    assert 103 not in rows and 103 in {x["card"] for x in data["extra_rows"]}
     assert rows[3]["players"]==1 and rows[3]["rate"]==.5 and rows[3]["copies"]==40
     assert "1/2人" in usage_text(data)
     assert not usable({"main":[1],"extra":[]})
@@ -160,7 +162,7 @@ def test_commands_register_permissions_and_persist_without_live_collector(tmp_pa
     monkeypatch.setattr(commands,"on_command",command)
     store=ArchiveStore(tmp_path)
     commands.register_commands(lambda:store,lambda:None)
-    assert len(registry)==5
+    assert len(registry)==6
     for name in ("卡组采集","停止卡组采集","卡组采集列表"):
         assert registry[name].options["permission"] is SUPERUSER
     assert "permission" not in registry["前百卡片使用率"].options
@@ -187,3 +189,37 @@ def test_card_names_uses_local_configured_catalog(tmp_path,monkeypatch):
         db.execute("INSERT INTO texts VALUES (1,'测试卡')")
     monkeypatch.setenv("MYCARD_CARD_DB",str(path))
     assert card_names([1,1,2])=={1:"测试卡"}
+
+
+def test_main_side_union_does_not_double_count_same_player(tmp_path):
+    store=ArchiveStore(tmp_path);key=archived(store,"overlap",100)
+    with store.connect() as db:
+        value=deck(1);value["side"]=[1,777]
+        db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player='Alice'",(json.dumps(value),key))
+    result=card_usage(store,["Alice","Bob"],now=1000)
+    row=next(x for x in result["rows"] if x["card"]==1)
+    assert row["main"]==1 and row["side"]==1 and row["players"]==1 and row["rate"]==.5
+    assert 101 not in {x["card"] for x in result["rows"]}
+
+def test_side_uses_accumulated_observations_of_latest_same_version(tmp_path):
+    store=ArchiveStore(tmp_path)
+    for room,when,side in (("first",100,[777]),("second",200,[888])):
+        key=archived(store,room,when)
+        value=deck(1);value["side"]=side
+        with store.connect() as db:
+            db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player='Alice'",(json.dumps(value),key))
+    data=card_usage(store,["Alice"],now=1000)
+    assert {777,888}<={x["card"] for x in data["rows"]}
+    assert data["side_observed"]==1
+
+def test_each_card_list_is_limited_to_top100(tmp_path):
+    store=ArchiveStore(tmp_path);players=[]
+    for i in range(8):
+        player=f"P{i}";players.append(player)
+        key=archived(store,str(i),100+i,players=(player,f"Opponent{i}"))
+        value={"player":player,"main":list(range(1000+i*40,1040+i*40)),"extra":list(range(10000+i*15,10015+i*15)),"side":[]}
+        with store.connect() as db:
+            db.execute("UPDATE observations SET deck=? WHERE match_id=? AND player=?",(json.dumps(value),key,player))
+    data=card_usage(store,players,now=1000)
+    assert data["total_cards"]==320 and data["extra_total_cards"]==120
+    assert len(data["rows"])==len(data["extra_rows"])==100
