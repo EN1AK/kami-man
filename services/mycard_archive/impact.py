@@ -98,7 +98,7 @@ def impact_text(data,page=1,extra=False):
     for r in rows:
         lines.append(f"{r['name']}：{r['delta']*100:+.1f}个百分点｜加权携带 {r['with_rate']:.1%} / 未携带 {r['without_rate']:.1%}"
                      f"｜样本 {r['with_n']}/{r['without_n']} 次｜{r['classes']}个体系")
-        lines.append("主要比较体系："+"；".join(f"{c['archetype']} {100*(c['with_rate']-c['without_rate']):+.1f}pp（{c['with_n']}/{c['without_n']}次）" for c in r["comparisons"][:3]))
+        lines.append("对照大类："+"；".join(f"{c['archetype']} {100*(c['with_rate']-c['without_rate']):+.1f}pp（{c['with_n']}/{c['without_n']}次）" for c in r["comparisons"]))
     if not rows:lines.append("暂无达到双组样本门槛的卡片；缺少对照不代表影响为0。")
     lines.append("只比较首份观测主卡/额外，不含Side；相关差异不是因果提升，未控制玩家水平、对手构成和先后手。")
     return "\n".join(lines)
