@@ -205,7 +205,7 @@ def render_impact(data,stamp,page=1,extra=False):
             ax.set_yticks(positions);ax.set_yticklabels(labels,fontproperties=f,fontsize=11);ax.set_ylim(total,0)
         else:
             ax.set_yticks([]);ax.text(.5,.5,"暂无满足双组样本门槛的卡片",transform=ax.transAxes,ha="center",fontproperties=f,fontsize=16)
-        figure.text(.045,.11,f"每个体系携带、未携带各至少{data['minimum_samples']}次且各至少{data['minimum_players']}位玩家；缺少对照不等于零影响。按对照大类分组，组内按差值绝对值排序；多类加权单列。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.11,f"每个体系携带、未携带各至少{data['minimum_samples']}次且各至少{data['minimum_players']}位玩家；缺少对照不等于零影响。大类按出场次数降序，组内按差值绝对值排序；多类加权单列。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.075,"卡名下列出全部对照大类；多类为同体系差值的加权汇总，单位为百分点。同名异画合并，每名玩家每场记一次。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.045,"相关差异并非因果提升；未控制玩家水平、对手构成及先后手。仅首份观测主卡/额外，不含不完整Side。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.02,"查询：卡片影响度 [前100/前500] [天数] [页码] [额外]；每天更新，可加“文字”查看各对照大类的差值和样本量。",fontproperties=f,fontsize=10,color="#53647b")

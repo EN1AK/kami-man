@@ -89,3 +89,60 @@ def test_impact_sections_share_snapshot_but_scopes_do_not(tmp_path,monkeypatch):
         assert await service.image("impact")==a
     asyncio.run(run())
     assert calls==[100,500]
+
+
+
+def test_archetype_groups_sorted_by_appearances_then_card_delta():
+    from services.mycard_archive.impact import ordered_impact_rows
+    def row(card,name,n,delta):
+        return dict(card=card,name=str(card),delta=delta,with_n=n//2,without_n=n-n//2,
+                    comparisons=[dict(archetype=name,with_n=n//2,without_n=n-n//2)])
+    cold=row(1,"A冷门",40,.9);hot1=row(2,"Z热门",100,.1);hot2=row(3,"Z热门",100,.3)
+    data=dict(main_rows=[cold,hot1,hot2])
+    assert [r["card"] for r in ordered_impact_rows(data)]==[3,2,1]
+
+
+def test_impact_batch_uses_one_snapshot_for_five_pages(tmp_path,monkeypatch):
+    service=reports.ChartReports(ArchiveStore(tmp_path/"archive"),tmp_path/"charts")
+    calls=[]
+    async def snapshot(kind,days,now,rank_cutoff):
+        calls.append((kind,days,rank_cutoff))
+        return dict(day="2026-10-27",key="impact-top100-30",generated_at="北京时间",data=dict(main_rows=[{}]*100,extra_rows=[]))
+    monkeypatch.setattr(service,"snapshot",snapshot)
+    monkeypatch.setattr(reports,"render_impact",lambda d,stamp,page,extra:b"\x89PNG\r\n\x1a\n"+str(page).encode())
+    images=asyncio.run(service.impact_images())
+    assert len(images)==5 and images[0].endswith(b"1") and images[-1].endswith(b"5")
+    assert calls==[("impact",30,100)]
+    assert len(list((tmp_path/"charts").glob("*.png")))==5
+
+
+@pytest.mark.parametrize("group",[True,False])
+def test_default_impact_command_sends_one_forward_record_with_five_images(tmp_path,monkeypatch,group):
+    from types import SimpleNamespace
+    from nonebot.adapters.onebot.v11 import Message
+    from services.mycard_archive import commands
+    registry={}
+    class Matcher:
+        def handle(self):
+            def attach(fn):self.handler=fn;return fn
+            return attach
+    def command(name,**kwargs):registry[name]=Matcher();return registry[name]
+    monkeypatch.setattr(commands,"on_command",command)
+    store=ArchiveStore(tmp_path/"archive");factory=commands.register_commands(lambda:store,lambda:None)
+    batches=[];sent=[]
+    async def pages(days,rank_cutoff=100,extra=False):
+        batches.append((days,rank_cutoff,extra));return [b"fixture"]*5
+    monkeypatch.setattr(factory(),"impact_images",pages)
+    class Bot:
+        self_id="12345"
+        async def send(self,*args):raise AssertionError("No separate image messages")
+        async def call_api(self,name,**kwargs):sent.append((name,kwargs))
+    event=SimpleNamespace(user_id=456,**({"group_id":789} if group else {}))
+    asyncio.run(registry["卡片影响度"].handler(Bot(),event,Message("前500 7 额外")))
+    assert batches==[(7,500,True)] and len(sent)==1
+    name,args=sent[0]
+    assert name==("send_group_forward_msg" if group else "send_private_forward_msg")
+    assert len(args["messages"])==5
+    for node in args["messages"]:
+        assert node["type"]=="node"
+        assert any(segment.type=="image" for segment in node["data"]["content"])

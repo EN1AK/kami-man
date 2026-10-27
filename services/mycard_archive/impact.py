@@ -26,7 +26,7 @@ def summarize(samples,names,min_samples=MIN_SAMPLES,min_players=MIN_PLAYERS):
             for card in {canonical[c] for c in s[kind]}:
                 row=present[kind].setdefault(card,{}).setdefault(s["archetype"],dict(n=0,wins=0,players=Counter()))
                 row["n"]+=1;row["wins"]+=s["won"];row["players"][s["player"]]+=1
-    result={}
+    result={"archetype_counts":{name:r["n"] for name,r in totals.items()}}
     for kind,entries in present.items():
         rows=[]
         for card,groups in entries.items():
@@ -97,7 +97,13 @@ def comparison_group(row):
 
 def ordered_impact_rows(data,extra=False):
     rows=data["extra_rows" if extra else "main_rows"]
-    return sorted(rows,key=lambda r:(*comparison_group(r),-abs(r["delta"]),-(r["with_n"]+r["without_n"]),r["card"]))
+    counts=dict(data.get("archetype_counts",{}))
+    for row in rows:
+        for c in row["comparisons"]:counts.setdefault(c["archetype"],c["with_n"]+c["without_n"])
+    def key(row):
+        multi,names=comparison_group(row)
+        return (multi,-sum(counts.get(name,0) for name in names),names,-abs(row["delta"]),-(row["with_n"]+row["without_n"]),row["card"])
+    return sorted(rows,key=key)
 
 def impact_text(data,page=1,extra=False):
     kind="extra" if extra else "main"

@@ -111,7 +111,7 @@ def test_query_commands_send_images_only_when_triggered(tmp_path,monkeypatch):
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("7"))
         await registered["额外卡组使用率"].handler(Bot(),SimpleNamespace(),Message(""))
         await registered["卡组对阵胜率"].handler(Bot(),SimpleNamespace(),Message("前500 7"))
-        await registered["卡片影响度"].handler(Bot(),SimpleNamespace(),Message(""))
+        await registered["卡片影响度"].handler(Bot(),SimpleNamespace(),Message("30 1"))
         await registered["卡片影响度"].handler(Bot(),SimpleNamespace(),Message("前500 7 2 额外"))
     asyncio.run(run())
     assert calls==[("usage",1,30,100),("matchups",1,7,100),("extra",1,30,100),("matchups",1,7,500),("impact",1,30,100),("impact-extra",2,7,500)]

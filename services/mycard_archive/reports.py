@@ -15,7 +15,7 @@ from .statistics import top_players,card_usage,card_names,matchup_stats
 
 CHINA=ZoneInfo("Asia/Shanghai")
 SNAPSHOT_VERSION=11
-IMPACT_RENDER_VERSION=3
+IMPACT_RENDER_VERSION=4
 CACHE_LIMIT=32*1024**2
 FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|(?:matchups|impact|impact-extra)-(?:top(?:100|500)-)?[1-9]\d?)(?:-v[1-9]\d*)?(?:-r[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
 
@@ -88,24 +88,35 @@ class ChartReports:
         async with self.lock:
             now=self.clock()
             snapshot=await self.snapshot("usage" if kind=="extra" else "impact" if kind=="impact-extra" else kind,days,now,rank_cutoff)
-            image_key="extra" if kind=="extra" else snapshot["key"].replace("impact-","impact-extra-",1) if kind=="impact-extra" else snapshot["key"]
-            render_suffix=f"-r{IMPACT_RENDER_VERSION}" if kind in {"impact","impact-extra"} else ""
-            path=self.root/f"{snapshot['day']}-{image_key}-v{SNAPSHOT_VERSION}{render_suffix}-p{page}.png"
-            if path.is_file() and not path.is_symlink():
-                raw=await asyncio.to_thread(path.read_bytes)
-                if raw.startswith(b"\x89PNG\r\n\x1a\n") and len(raw)<=4*1024**2:
-                    return raw
-            if kind=="usage":
-                raw=await asyncio.to_thread(render_usage,snapshot["data"],snapshot["names"],snapshot["generated_at"],page)
-            elif kind=="extra":
-                raw=await asyncio.to_thread(render_extra,snapshot["data"],snapshot["names"],snapshot["generated_at"],page)
-            elif kind in {"impact","impact-extra"}:
-                raw=await asyncio.to_thread(render_impact,snapshot["data"],snapshot["generated_at"],page,kind=="impact-extra")
-            else:
-                raw=await asyncio.to_thread(render_matchups,snapshot["data"],snapshot["generated_at"],page)
-            await asyncio.to_thread(self.save,path,raw,snapshot["day"])
-            return raw
+            return await self._image_from_snapshot(kind,page,snapshot)
 
+    async def impact_images(self,days=30,rank_cutoff=100,extra=False):
+        if type(days) is not int or not 1<=days<=90 or type(rank_cutoff) is not int or rank_cutoff not in (100,500):
+            raise ValueError("统计范围无效")
+        async with self.lock:
+            snapshot=await self.snapshot("impact",days,self.clock(),rank_cutoff)
+            rows=snapshot["data"]["extra_rows" if extra else "main_rows"]
+            pages=max(1,min(5,(len(rows)+19)//20))
+            return [await self._image_from_snapshot("impact-extra" if extra else "impact",page,snapshot) for page in range(1,pages+1)]
+
+    async def _image_from_snapshot(self,kind,page,snapshot):
+        image_key="extra" if kind=="extra" else snapshot["key"].replace("impact-","impact-extra-",1) if kind=="impact-extra" else snapshot["key"]
+        render_suffix=f"-r{IMPACT_RENDER_VERSION}" if kind in {"impact","impact-extra"} else ""
+        path=self.root/f"{snapshot['day']}-{image_key}-v{SNAPSHOT_VERSION}{render_suffix}-p{page}.png"
+        if path.is_file() and not path.is_symlink():
+            raw=await asyncio.to_thread(path.read_bytes)
+            if raw.startswith(b"\x89PNG\r\n\x1a\n") and len(raw)<=4*1024**2:
+                return raw
+        if kind=="usage":
+            raw=await asyncio.to_thread(render_usage,snapshot["data"],snapshot["names"],snapshot["generated_at"],page)
+        elif kind=="extra":
+            raw=await asyncio.to_thread(render_extra,snapshot["data"],snapshot["names"],snapshot["generated_at"],page)
+        elif kind in {"impact","impact-extra"}:
+            raw=await asyncio.to_thread(render_impact,snapshot["data"],snapshot["generated_at"],page,kind=="impact-extra")
+        else:
+            raw=await asyncio.to_thread(render_matchups,snapshot["data"],snapshot["generated_at"],page)
+        await asyncio.to_thread(self.save,path,raw,snapshot["day"])
+        return raw
     async def refresh(self):
         await self.image("usage")
         await self.image("extra")

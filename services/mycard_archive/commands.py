@@ -13,6 +13,7 @@ from .tracking import TrackingStore
 from .outcomes import MatchResults
 from .statistics import top_players,card_usage,card_names,usage_text,matchup_stats,matchup_text
 from services.ygo_rag_messages import chunk_text
+from services.onebot_forward import make_forward_node
 
 def register_commands(library,collector):
     capture=on_command("卡组采集",aliases={"MyCard采集"},permission=SUPERUSER,priority=5,block=True)
@@ -163,12 +164,29 @@ def register_commands(library,collector):
                 if markers:raise ValueError("排名范围重复")
                 cutoff=int(parts.pop(0))
             if len(parts)>2:raise ValueError("参数过多")
+            explicit_page=len(parts)>1
             days=int(parts[0]) if parts else 30
             page=int(parts[1]) if len(parts)>1 else 1
             if not 1<=days<=90 or page<1:raise ValueError("参数范围")
             if not text_mode:
-                raw=await report_service().image("impact-extra" if extra else "impact",page,days,rank_cutoff=cutoff)
-                await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
+                if explicit_page:
+                    raw=await report_service().image("impact-extra" if extra else "impact",page,days,rank_cutoff=cutoff)
+                    await bot.send(event,MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii")))
+                    return
+                images=await report_service().impact_images(days,rank_cutoff=cutoff,extra=extra)
+                nodes=[]
+                title=f"卡片影响度｜前{cutoff}｜近{days}天｜{'额外' if extra else '主卡'}"
+                for i,raw in enumerate(images,1):
+                    content=Message(MessageSegment.text(f"{title}｜第{i}/{len(images)}页\n"))
+                    content+=MessageSegment.image("base64://"+base64.b64encode(raw).decode("ascii"))
+                    nodes.append(make_forward_node(int(bot.self_id),"卡片影响度",content))
+                preview=dict(source="卡片影响度",summary=f"按大类出场次数排序，共{len(images)}张图",prompt="[卡片影响度]")
+                try:
+                    group_id=getattr(event,"group_id",None)
+                    if group_id is not None:await bot.call_api("send_group_forward_msg",group_id=group_id,messages=nodes,**preview)
+                    else:await bot.call_api("send_private_forward_msg",user_id=event.user_id,messages=nodes,**preview)
+                except Exception:
+                    await send(bot,event,"QQ 未确认影响度聊天记录发送结果，请先检查聊天记录后再重试。")
                 return
             async def build():
                 await asyncio.to_thread(MatchResults,library())
