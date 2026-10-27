@@ -5,6 +5,7 @@ import os
 import threading
 import textwrap
 from .statistics import page_rows,matchup_matrix
+from .impact import ordered_impact_rows,comparison_group
 
 _RENDER_LOCK=threading.Lock()
 
@@ -179,8 +180,8 @@ def render_matchups(data,stamp,page=1):
 
 def render_impact(data,stamp,page=1,extra=False):
     kind="extra" if extra else "main"
-    rows,pages=page_rows(data[kind+"_rows"],page)
-    labels=[label(r["name"],16)+"\n"+label("对照大类："+"、".join(c["archetype"] for c in r["comparisons"]),18) for r in rows]
+    rows,pages=page_rows(ordered_impact_rows(data,extra),page)
+    labels=[label(r["name"],16)+"\n"+label("对照大类："+"、".join(comparison_group(r)[1]),18) for r in rows]
     positions,total=row_layout(labels)
     with _RENDER_LOCK:
         figure,ax,f=setup(total,f"卡片携带胜率差 · {'额外' if extra else '主卡'} · 前{data['rank_cutoff']} · 近{data['days']}天 · {page}/{pages}页",
@@ -191,6 +192,9 @@ def render_impact(data,stamp,page=1,extra=False):
         ax.axvline(0,color="#53647b",linewidth=1)
         for x,title in ((.64,"加权携带 / 未携带胜率"),(.80,"携带 / 未携带样本 · 体系数")):
             figure.text(x,.88,title,fontproperties=f,fontsize=11,color="#15253d")
+        for i in range(1,len(rows)):
+            if comparison_group(rows[i])!=comparison_group(rows[i-1]):
+                ax.axhline((positions[i]+positions[i-1])/2,color="#c6d0df",linewidth=1)
         for y,r in zip(positions,rows):
             delta=r["delta"]*100
             ax.barh(y,delta,height=.53,color="#2676c9" if delta>=0 else "#c26b35")
@@ -201,7 +205,7 @@ def render_impact(data,stamp,page=1,extra=False):
             ax.set_yticks(positions);ax.set_yticklabels(labels,fontproperties=f,fontsize=11);ax.set_ylim(total,0)
         else:
             ax.set_yticks([]);ax.text(.5,.5,"暂无满足双组样本门槛的卡片",transform=ax.transAxes,ha="center",fontproperties=f,fontsize=16)
-        figure.text(.045,.11,f"每个体系携带、未携带各至少{data['minimum_samples']}次且各至少{data['minimum_players']}位玩家；缺少对照不等于零影响。按差值绝对值排序。",fontproperties=f,fontsize=11,color="#53647b")
+        figure.text(.045,.11,f"每个体系携带、未携带各至少{data['minimum_samples']}次且各至少{data['minimum_players']}位玩家；缺少对照不等于零影响。按对照大类分组，组内按差值绝对值排序；多类加权单列。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.075,"卡名下列出全部对照大类；多类为同体系差值的加权汇总，单位为百分点。同名异画合并，每名玩家每场记一次。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.045,"相关差异并非因果提升；未控制玩家水平、对手构成及先后手。仅首份观测主卡/额外，不含不完整Side。",fontproperties=f,fontsize=11,color="#53647b")
         figure.text(.045,.02,"查询：卡片影响度 [前100/前500] [天数] [页码] [额外]；每天更新，可加“文字”查看各对照大类的差值和样本量。",fontproperties=f,fontsize=10,color="#53647b")

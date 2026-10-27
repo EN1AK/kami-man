@@ -89,13 +89,28 @@ def impact_stats(store,days=30,now=None,rank_cutoff=100,classifier=classify_arch
         minimum_samples=MIN_SAMPLES,minimum_players=MIN_PLAYERS,**summarize(samples,names))
 
 
+
+def comparison_group(row):
+    names=tuple(sorted({c["archetype"] for c in row["comparisons"]}))
+    return (int(len(names)>1),names)
+
+
+def ordered_impact_rows(data,extra=False):
+    rows=data["extra_rows" if extra else "main_rows"]
+    return sorted(rows,key=lambda r:(*comparison_group(r),-abs(r["delta"]),-(r["with_n"]+r["without_n"]),r["card"]))
+
 def impact_text(data,page=1,extra=False):
     kind="extra" if extra else "main"
-    rows,pages=page_rows(data[kind+"_rows"],page)
+    rows,pages=page_rows(ordered_impact_rows(data,extra),page)
     lines=[f"卡片携带胜率差｜前{data['rank_cutoff']}｜近{data['days']}天｜{'额外' if extra else '主卡'}｜{page}/{pages}页",
         f"有效玩家对局 {data['samples']} 次 / {data['players']} 人；同体系比较后按重叠样本权重合并。",
         f"每个体系携带/未携带各至少{data['minimum_samples']}次、各至少{data['minimum_players']}人；不可比较卡 {data[kind+'_uncomparable']} 种。"]
+    previous=None
     for r in rows:
+        group=comparison_group(r)
+        if group!=previous:
+            lines.append("【"+("多类加权：" if group[0] else "大类：")+"、".join(group[1])+"】")
+            previous=group
         lines.append(f"{r['name']}：{r['delta']*100:+.1f}个百分点｜加权携带 {r['with_rate']:.1%} / 未携带 {r['without_rate']:.1%}"
                      f"｜样本 {r['with_n']}/{r['without_n']} 次｜{r['classes']}个体系")
         lines.append("对照大类："+"；".join(f"{c['archetype']} {100*(c['with_rate']-c['without_rate']):+.1f}pp（{c['with_n']}/{c['without_n']}次）" for c in r["comparisons"]))
