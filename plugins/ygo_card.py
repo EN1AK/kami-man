@@ -1,6 +1,9 @@
 import re
+import asyncio
 
-from nonebot import on_command
+import httpx
+
+from nonebot import on_command,logger
 from nonebot.adapters.onebot.v11 import (
     Bot,
     Message,
@@ -100,7 +103,37 @@ async def build_card_message(card: dict) -> Message:
         msg += MessageSegment.image(img)
 
     msg += format_card_text(card)
+    if not img:msg += "\n卡图暂不可用，先显示卡片文字。"
     return msg
+
+
+async def lookup_cards(matcher,cardname):
+    try:return await search_cards(cardname)
+    except (httpx.HTTPError,ValueError) as exc:
+        logger.warning("[ygo_card] lookup failed: "+type(exc).__name__)
+        await matcher.finish("查卡服务暂时连接失败，请稍后重试。")
+
+
+async def build_card_messages(cards):
+    if not cards:return []
+    slots=asyncio.Semaphore(5)
+    async def build(card):
+        async with slots:return await build_card_message(card)
+    tasks=[asyncio.create_task(build(card)) for card in cards]
+    try:
+        _,pending=await asyncio.wait(tasks,timeout=10)
+        for task in pending:task.cancel()
+        await asyncio.gather(*pending,return_exceptions=True)
+        messages=[]
+        for task,card in zip(tasks,cards):
+            if task.cancelled() or task.exception() is not None:
+                messages.append(Message(format_card_text(card)+"\n卡图暂不可用，先显示卡片文字。"))
+            else:messages.append(task.result())
+        return messages
+    finally:
+        for task in tasks:
+            if not task.done():task.cancel()
+        await asyncio.gather(*tasks,return_exceptions=True)
 
 
 @ck.handle()
@@ -110,7 +143,7 @@ async def handle_ck(args: Message = CommandArg()):
     if not cardname:
         await ck.finish("错误: 请输入卡片名称")
 
-    cards = await search_cards(cardname)
+    cards = await lookup_cards(ck,cardname)
 
     if not cards:
         await ck.finish(f"未找到卡片: {cardname}")
@@ -126,7 +159,7 @@ async def handle_card_pic(args: Message = CommandArg()):
     if not cardname:
         await card_pic.finish("错误: 请输入卡片名称")
 
-    cards = await search_cards(cardname)
+    cards = await lookup_cards(card_pic,cardname)
 
     if not cards:
         await card_pic.finish(f"未找到卡片: {cardname}")
@@ -147,18 +180,14 @@ async def handle_pl(bot: Bot, event: MessageEvent, args: Message = CommandArg())
     if not cardname:
         await pl.finish("错误: 请输入卡片名称")
 
-    cards = await search_cards(cardname)
+    cards = await lookup_cards(pl,cardname)
 
     if not cards:
         await pl.finish(f"未找到卡片: {cardname}")
 
     cards = cards[:25]
 
-    messages: list[Message] = []
-
-    for card in cards:
-        msg = await build_card_message(card)
-        messages.append(msg)
+    messages = await build_card_messages(cards)
 
     await send_forward_msg(bot, event, messages)
 
@@ -172,7 +201,7 @@ async def handle_ruling(bot: Bot, event: MessageEvent, args: Message = CommandAr
 
     cardname, page = parse_ruling_args(query)
 
-    cards = await search_cards(cardname)
+    cards = await lookup_cards(ruling,cardname)
 
     if not cards:
         await ruling.finish(f"未找到卡片: {cardname}")
