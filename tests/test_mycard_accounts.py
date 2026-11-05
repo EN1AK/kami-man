@@ -130,3 +130,92 @@ def test_single_account_default_and_capacity_clamp(tmp_path, monkeypatch):
     c = Collector(ArchiveConfig(tmp_path, tmp_path/"primary", concurrency=4))
     assert c.capture_slots == 1
     asyncio.run(c.close())
+
+
+def test_slow_account_auth_does_not_block_healthy_account():
+    async def run():
+        blocked = asyncio.Event()
+        class Slow(Identity):
+            async def get(self):
+                await blocked.wait()
+                return await super().get()
+        pool = AccountPool([Slow("Slow"), Identity("Healthy")])
+        try:
+            identity = await asyncio.wait_for(pool.get_for([], asyncio.Event()), .5)
+            assert identity[0] == "Healthy"
+        finally:
+            pool.release()
+            await pool.close()
+    asyncio.run(run())
+
+
+def test_priority_queue_orders_waiters_and_cleans_cancelled_requests():
+    async def run():
+        pool = AccountPool([Identity("Observer")])
+        await pool.get_for([], asyncio.Event())
+        order = []
+        async def waiter(label, score):
+            try:
+                identity = await pool.get_for([], asyncio.Event(), lambda: score)
+                assert identity[0] == "Observer"
+                order.append(label)
+            finally:
+                pool.release()
+        tasks = [asyncio.create_task(waiter("fresh", (1, -1, 1))),
+                 asyncio.create_task(waiter("stale", (1, -100, 2))),
+                 asyncio.create_task(waiter("target", (0, 0, 3)))]
+        cancelled = asyncio.create_task(waiter("cancelled", (-1, 0, 0)))
+        await asyncio.sleep(.02)
+        cancelled.cancel()
+        await asyncio.gather(cancelled, return_exceptions=True)
+        pool.release()
+        await asyncio.wait_for(asyncio.gather(*tasks), 2)
+        assert order == ["target", "stale", "fresh"]
+        assert not pool.waiting and not pool.busy
+        await pool.close()
+    asyncio.run(run())
+
+
+def test_queue_priority_uses_target_staleness_and_top100(tmp_path, monkeypatch):
+    monkeypatch.setattr("services.mycard_archive.collector.time.time", lambda: 1_000_000)
+    c = Collector(ArchiveConfig(tmp_path, tmp_path/"primary"))
+    def room(name, rank=200, seen=1):
+        return RoomState({"id":name}, [name,"opponent"], first_seen=seen,
+                         eligible=(name,), ranks={name:rank})
+    c.latest_observed.update(fresh=1_000_000, stale=900_000,
+                            target=1_000_000, top=1_000_000)
+    c.tracked.add("target")
+    assert c.queue_priority(room("target")) < c.queue_priority(room("missing"))
+    assert c.queue_priority(room("missing")) < c.queue_priority(room("stale"))
+    assert c.queue_priority(room("stale")) < c.queue_priority(room("fresh"))
+    assert c.queue_priority(room("top", rank=10)) < c.queue_priority(room("fresh"))
+    assert c.queue_priority(room("fresh", seen=1)) < c.queue_priority(room("fresh", seen=2))
+    c.tracked.clear()
+    assert c.queue_priority(room("target"))[0] == 1
+    asyncio.run(c.close())
+
+
+def test_last_observed_uses_actual_observation_time(tmp_path):
+    from services.mycard_archive.store import ArchiveStore
+    store = ArchiveStore(tmp_path)
+    assert store.last_observed([]) == {}
+    assert store.last_observed(["Alice", "Alice", "Unknown"]) == {}
+    match, _ = store.begin({"id":"room"}, ["Alice","Bob"], {}, 100)
+    with store.connect() as db:
+        db.execute("INSERT INTO observations VALUES (?,?,?,?)", (match,"Alice",123,"{}"))
+    assert store.last_observed(["Alice","Unknown"]) == {"Alice":123}
+
+
+def test_pool_total_capacity_respects_lower_global_limit():
+    async def run():
+        pool = AccountPool([Identity("One"), Identity("Two")], capacity=1)
+        await pool.get_for([], asyncio.Event())
+        ended = asyncio.Event()
+        waiter = asyncio.create_task(pool.get_for([], ended))
+        await asyncio.sleep(.15)
+        assert not waiter.done() and len(pool.busy) == 1
+        ended.set()
+        assert await waiter is None
+        pool.release()
+        await pool.close()
+    asyncio.run(run())

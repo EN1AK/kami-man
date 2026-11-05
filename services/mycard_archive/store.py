@@ -251,6 +251,15 @@ class ArchiveStore:
             else:versions.append(current)
         return versions
 
+    def last_observed(self, players):
+        players = tuple(dict.fromkeys(players))
+        if not players:
+            return {}
+        placeholders = ",".join("?" for _ in players)
+        with self.connect() as db:
+            rows = db.execute(f"SELECT player,MAX(observed) FROM observations WHERE player IN ({placeholders}) GROUP BY player", players)
+            return {row[0]: row[1] for row in rows}
+
     def latest(self,player):
         versions=self.versions(player)
         return versions[-1] if versions else None

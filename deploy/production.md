@@ -613,3 +613,29 @@ count. For two verified accounts use total concurrency 2. Tokens stay in private
 server files with mode 0600 and must never enter Git. A single invalid account
 does not prevent another available account from being selected. Restart after
 changing the configured account list; ordinary token replacement refreshes live.
+
+
+## MyCard capture scheduling (2026-11-05)
+
+Waiting rooms reserve authenticated accounts in this order: explicitly tracked
+players first, then the highest eligible player's freshness urgency. Missing
+observations count as 72 hours old; known age is capped at 72 hours. A player in
+ranks 1-100 gets a 6 hour urgency bonus. Ties use room discovery order. Only players
+that qualified through the top-500 or explicit tracking rules contribute to the
+score. Actual observation timestamps are read through the player/time index;
+replay completion refreshes the in-memory freshness map. Tracking changes affect
+waiting priorities immediately. Running rooms are never preempted.
+
+Account identities are checked in independent background tasks. Slow authentication
+does not block another ready account. Failed credentials retry after 30 seconds;
+queued/cancelled/ended rooms release their reservations and authentication tasks
+are cancelled before the shared HTTP session closes. No credentials are logged.
+
+Official srvpro master checked on 2026-11-05: latest commit 193ab4c89cf9 (Nov 2).
+The multi-room and unverified-email spectator replay policies are independent
+server switches, both false in the repository default configuration; production
+operator settings are not exposed by that default file. Once a session overlaps
+multiple rooms it stays replay-blocked until it leaves and rejoins. Suppression
+also omits replay delivery hints; participants retain their own replay delivery.
+The latest commit only clarifies equivalent checks. Rejected connection per-IP
+slot accounting was also fixed on Nov 2; this does not raise the IP connection cap.
