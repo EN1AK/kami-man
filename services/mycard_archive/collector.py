@@ -10,6 +10,7 @@ import time
 import aiohttp
 from nonebot import logger
 from .protocol import Credentials,CredentialsUnavailable,watch
+from .accounts import AccountPool
 from .ranking import RankCache
 from .tracking import TrackingStore
 from .outcomes import MatchResults
@@ -20,7 +21,7 @@ class ArchiveConfig:
     root: Path
     credentials: Path
     enabled: bool = False
-    concurrency: int = 4
+    concurrency: int = 1
     cutoff: int = 500
     ws_url: str = "wss://tiramisu.moecube.com:8923/?filter=started"
     host: str = "tiramisu.moecube.com"
@@ -29,17 +30,20 @@ class ArchiveConfig:
     join_interval: float = 2
     archive_limit_bytes: int = DEFAULT_ARCHIVE_LIMIT
 
+    extra_credentials: tuple[Path, ...] = ()
+
     @classmethod
     def from_env(cls):
         project=Path(__file__).resolve().parents[2]
         root=Path(os.getenv("MYCARD_ARCHIVE_DIR",str(project/"data/mycard_archive"))).resolve()
         config=cls(root,Path(os.getenv("MYCARD_CREDENTIALS_FILE",str(root/"credentials.json"))).resolve(),
                    os.getenv("MYCARD_CAPTURE_ENABLED","false").lower() in {"1","true","yes"},
-                   int(os.getenv("MYCARD_CAPTURE_CONCURRENCY","4")),int(os.getenv("MYCARD_RANK_CUTOFF","500")),
+                   int(os.getenv("MYCARD_CAPTURE_CONCURRENCY","1")),int(os.getenv("MYCARD_RANK_CUTOFF","500")),
                    os.getenv("MYCARD_ROOM_WS","wss://tiramisu.moecube.com:8923/?filter=started"),
                    os.getenv("MYCARD_SPECTATOR_HOST","tiramisu.moecube.com"),int(os.getenv("MYCARD_SPECTATOR_PORT","8911")),
                    int(os.getenv("MYCARD_SPECTATOR_VERSION","0x1362"),0),float(os.getenv("MYCARD_JOIN_INTERVAL","2")),
-                   int(os.getenv("MYCARD_ARCHIVE_MAX_GB","10"))*1024**3)
+                   int(os.getenv("MYCARD_ARCHIVE_MAX_GB","10"))*1024**3,
+                   tuple(Path(p).resolve() for p in os.getenv("MYCARD_EXTRA_CREDENTIALS_FILES", "").split(os.pathsep) if p.strip()))
         if not 1<=config.concurrency<=16 or not 1<=config.cutoff<=500 or not 0<=config.version<=65535 or not 1<=config.port<=65535 or config.join_interval<0.5 or not 1<=config.archive_limit_bytes//(1024**3)<=1000:
             raise ValueError("MyCard 采集配置超出范围")
         return config
@@ -80,7 +84,8 @@ class Collector:
         self.rooms={};self.session=None;self.rank=None;self.credentials=None;self.ws_task=None
         self.tracked=set();self.tracking=None;self.results=None;self.result_task=None
         self.closed=False;self.ws_connected=False;self.initialized=False;self.last_error="";self.excluded=0
-        self.slots=asyncio.Semaphore(config.concurrency);self.join_lock=asyncio.Lock()
+        self.capture_slots=min(config.concurrency,1+len(config.extra_credentials))
+        self.slots=asyncio.Semaphore(self.capture_slots);self.join_lock=asyncio.Lock()
         self.next_join=0.;self.cooldown_until=0.;self.failed_joins=0
         # Room discovery must not flood asyncio's shared pool with full-tree scans.
         self.capacity_executor=ThreadPoolExecutor(max_workers=1,thread_name_prefix="mycard-capacity")
@@ -108,7 +113,7 @@ class Collector:
     async def start(self):
         self.session=aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=12))
         self.rank=RankCache(self.session,self.config.cutoff)
-        self.credentials=Credentials(self.config.credentials,self.session)
+        self.credentials=AccountPool([Credentials(path,self.session) for path in (self.config.credentials,*self.config.extra_credentials)])
         self.tracking=await asyncio.to_thread(TrackingStore,self.store)
         self.tracked=set(await asyncio.to_thread(self.tracking.players))
         self.results=await asyncio.to_thread(MatchResults,self.store)
@@ -218,7 +223,10 @@ class Collector:
                 self.error("可用磁盘空间不足，录像采集暂停")
                 if await pause_or_end(state.ended,60):return None
                 continue
-            try:return await self.credentials.get()
+            try:
+                if isinstance(self.credentials,AccountPool):
+                    return await self.credentials.get_for(state.players,state.ended)
+                return await self.credentials.get()
             except CredentialsUnavailable as exc:
                 self.error(str(exc))
                 if await pause_or_end(state.ended,30):return None
@@ -290,6 +298,7 @@ class Collector:
         except asyncio.CancelledError:raise  # active rows are recovered after restart
         except Exception as exc:self.error("归档处理失败："+type(exc).__name__)
         finally:
+            if isinstance(self.credentials,AccountPool):self.credentials.release()
             state.connected=False
             if state.ended.is_set() or self.closed:self.rooms.pop(state.room["id"],None)
 
@@ -303,7 +312,7 @@ class Collector:
         result_checked,result_matched=await asyncio.to_thread(self.results.progress) if self.results else (0,0)
         pending="已配置" if self.config.credentials.exists() else "未配置，录像采集等待登录凭据"
         return (f"MyCard 前 {self.config.cutoff} 归档\n公开房间监听：{'已连接' if self.ws_connected else '重连中'}\n"
-                f"指定采集名单 {len(self.tracked)} 人（不受排名限制）\n观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.config.concurrency}\n"
+                f"指定采集名单 {len(self.tracked)} 人（不受排名限制）\n观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.capture_slots}（配置账号 {1+len(self.config.extra_credentials)} 个，每账号单房间）\n"
                 f"正常结束 {stats.get('complete',0)}；部分录像 {stats.get('partial',0)}；未收到录像 {stats.get('unavailable',0)}\n"
                 f"官方胜负已核实 {result_matched} 场（已尝试 {result_checked} 场）\n"
                 f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}；home 已转存 {offloaded} 场\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")

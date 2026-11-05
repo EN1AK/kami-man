@@ -597,3 +597,19 @@ market versions together; market card IDs are never presented as YGO passwords.
 ambiguous-title handling is unchanged. Examples: `卡价 原石 简中` then choose
 `56506740`, then `SR`; or `卡价 原石 简中 SR` then choose the card to get prices.
 This update changes only the bot; no local mini-program restart is needed.
+
+
+## MyCard spectator account pool
+
+MyCard can suppress replays when one account watches multiple rooms. The default
+capture concurrency is 1. Each authenticated username is leased to one room until
+that room collection finishes, including reconnects. Duplicate credential files
+for the same username do not add capacity. Accounts playing in a room are excluded.
+
+Keep the primary MYCARD_CREDENTIALS_FILE setting. Optional additional files use
+MYCARD_EXTRA_CREDENTIALS_FILES (colon-separated absolute paths on Linux). Set
+MYCARD_CAPTURE_CONCURRENCY to the desired total, capped by the configured account
+count. For two verified accounts use total concurrency 2. Tokens stay in private
+server files with mode 0600 and must never enter Git. A single invalid account
+does not prevent another available account from being selected. Restart after
+changing the configured account list; ordinary token replacement refreshes live.

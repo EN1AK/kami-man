@@ -28,6 +28,7 @@ class Credentials:
                     async with self.session.get("https://sapi.moecube.com:444/accounts/authUser",headers={"Authorization":"Bearer "+info["token"]},timeout=aiohttp.ClientTimeout(total=20)) as response:
                         if response.status!=200:raise CredentialsUnavailable(f"MyCard 登录已失效（HTTP {response.status}）")
                         auth=await response.json()
+                    if auth.get("active") is False:raise CredentialsUnavailable("观战账号邮箱尚未验证")
                     username,secret=auth.get("username"),auth.get("u16Secret")
                 else:username,secret=info.get("username"),info.get("u16_secret")
                 if not isinstance(username,str) or not username or "\x00" in username or type(secret) is not int or not 0<=secret<2**64:

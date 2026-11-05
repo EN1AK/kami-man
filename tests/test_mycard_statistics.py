@@ -165,7 +165,7 @@ def test_commands_register_permissions_and_persist_without_live_collector(tmp_pa
     assert len(registry)==7
     assert "前百卡片使用率" in registry["卡片使用率"].options["aliases"]
     for name in ("卡组采集","停止卡组采集","卡组采集列表"):
-        assert registry[name].options["permission"] is SUPERUSER
+        assert "permission" not in registry[name].options
     assert "permission" not in registry["卡片使用率"].options
     sent=[]
     class Bot:
