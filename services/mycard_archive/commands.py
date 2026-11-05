@@ -6,7 +6,6 @@ import aiohttp
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot,MessageEvent,Message,MessageSegment
 from nonebot.params import CommandArg
-from nonebot.permission import SUPERUSER
 from .reports import ChartReports
 from .impact import impact_stats,impact_text
 from .tracking import TrackingStore
@@ -16,9 +15,9 @@ from services.ygo_rag_messages import chunk_text
 from services.onebot_forward import make_forward_node
 
 def register_commands(library,collector):
-    capture=on_command("卡组采集",aliases={"MyCard采集"},permission=SUPERUSER,priority=5,block=True)
-    stop=on_command("停止卡组采集",aliases={"MyCard停止采集"},permission=SUPERUSER,priority=5,block=True)
-    targets=on_command("卡组采集列表",aliases={"MyCard采集列表"},permission=SUPERUSER,priority=5,block=True)
+    capture=on_command("卡组采集",aliases={"MyCard采集"},priority=5,block=True)
+    stop=on_command("停止卡组采集",aliases={"MyCard停止采集"},priority=5,block=True)
+    targets=on_command("卡组采集列表",aliases={"MyCard采集列表"},priority=5,block=True)
     usage=on_command("卡片使用率",aliases={"前五百卡片使用率","前百卡片使用率","MyCard卡片使用率"},priority=5,block=True)
     extra_usage=on_command("额外卡组使用率",aliases={"前五百额外使用率","前百额外使用率","MyCard额外使用率"},priority=5,block=True)
     matchups=on_command("卡组对阵胜率",aliases={"MyCard对阵胜率"},priority=5,block=True)

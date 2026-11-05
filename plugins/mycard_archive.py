@@ -48,11 +48,11 @@ async def stop_archive():
 
 rules_command=on_command("MyCard规则检查",aliases={"mycard规则检查"},permission=SUPERUSER,priority=5,block=True)
 status_command=on_command("MyCard采集状态",aliases={"mycard采集状态","MC采集状态"},permission=SUPERUSER,priority=5,block=True)
-player_deck=on_command("卡组查询",aliases={"MyCard卡组","mycard卡组"},permission=SUPERUSER,priority=5,block=True)
-deck_history=on_command("MyCard卡组历史",aliases={"mycard卡组历史"},permission=SUPERUSER,priority=5,block=True)
+player_deck=on_command("卡组查询",aliases={"MyCard卡组","mycard卡组"},priority=5,block=True)
+deck_history=on_command("MyCard卡组历史",aliases={"mycard卡组历史"},priority=5,block=True)
 replay_history=on_command("MyCard录像",aliases={"mycard录像"},permission=SUPERUSER,priority=5,block=True)
 archive_file=on_command("MyCard文件",aliases={"mycard文件"},permission=SUPERUSER,priority=5,block=True)
-deck_file=on_command("MyCard卡组文件",aliases={"mycard卡组文件"},permission=SUPERUSER,priority=5,block=True)
+deck_file=on_command("MyCard卡组文件",aliases={"mycard卡组文件"},priority=5,block=True)
 top_decks=on_command("前排卡组信息",priority=5,block=True)
 
 
