@@ -56,3 +56,5 @@ data/private_memes.db*
 
 # Bounded daily aggregate chart cache
 /data/mycard_reports/
+
+/data/ygo_images/

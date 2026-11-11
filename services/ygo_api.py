@@ -2,6 +2,7 @@ import base64
 import asyncio
 import time
 from collections import OrderedDict
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -12,6 +13,8 @@ YGOCDB_API = "https://ygocdb.com/api/v0/"
 PRIMARY_IMG = "https://cdncf.moecube.com/images/ygopro-images-zh-CN/{id}.jpg"
 FALLBACK_IMG = "https://cdn02.moecube.com/images/ygopro-images-zh-CN/{id}.jpg"
 LEGACY_IMG = "https://cdn.233.momobako.com/ygoimg/ygopro/{id}.webp"
+IMAGE_DIR = Path(__file__).resolve().parents[1] / "data" / "ygo_images"
+MAX_IMAGE_BYTES = 2 * 1024**2
 _IMAGE_CACHE = OrderedDict()
 _IMAGE_INFLIGHT = {}
 _IMAGE_COOLDOWN = {}
@@ -96,6 +99,23 @@ def _cache_image(card_id,value):
         _IMAGE_CACHE.popitem(last=False)
 
 
+def valid_card_image(data):
+    return 0 < len(data) <= MAX_IMAGE_BYTES and (
+        data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or
+        data.startswith(b"RIFF") and data[8:12] == b"WEBP")
+
+
+def _read_card_image(card_id):
+    try:
+        with (IMAGE_DIR / f"{int(card_id)}.img").open("rb") as file:
+            data = file.read(MAX_IMAGE_BYTES + 1)
+    except OSError:
+        return None
+    if valid_card_image(data):
+        return "base64://" + base64.b64encode(data).decode("ascii")
+    return None
+
+
 async def _fetch_card_image(card_id):
     async with _IMAGE_SLOTS:
         async with httpx.AsyncClient(timeout=httpx.Timeout(4,connect=2),follow_redirects=True) as client:
@@ -117,6 +137,10 @@ async def _fetch_card_image(card_id):
 
 
 async def _load_card_image(card_id):
+    value = await asyncio.to_thread(_read_card_image, card_id)
+    if value:
+        _cache_image(card_id, value)
+        return value
     try:
         value=await asyncio.wait_for(_fetch_card_image(card_id),timeout=7)
     except asyncio.TimeoutError:value=None
