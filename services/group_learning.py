@@ -53,6 +53,12 @@ class GroupLearningStore(GroupStyleStore):
                 id INTEGER PRIMARY KEY,group_id INTEGER NOT NULL,text TEXT NOT NULL,created REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS group_sample_clock (
                 id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS group_conversation (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,group_id INTEGER NOT NULL,
+                message_id TEXT NOT NULL,speaker TEXT NOT NULL,role TEXT NOT NULL,
+                text TEXT NOT NULL,reply_to TEXT NOT NULL DEFAULT '',created REAL NOT NULL,
+                random_checked INTEGER NOT NULL DEFAULT 0,UNIQUE(group_id,message_id));
+            CREATE INDEX IF NOT EXISTS group_conversation_recent ON group_conversation(group_id,created,seq);
         """)
         for group in ALLOWED_GROUPS:
             db.execute("INSERT OR IGNORE INTO group_learning_runs(group_id) VALUES (?)",(group,))
@@ -87,6 +93,9 @@ class GroupLearningStore(GroupStyleStore):
             (SELECT id FROM group_expressions WHERE group_id=? ORDER BY updated DESC,id DESC LIMIT 300)""",(group,group))
         db.execute("DELETE FROM group_expression_evidence WHERE expression_id NOT IN (SELECT id FROM group_expressions)")
         db.execute("DELETE FROM group_own_replies WHERE created<?",(now-86400,))
+        db.execute("DELETE FROM group_conversation WHERE created<?",(now-1800,))
+        db.execute("""DELETE FROM group_conversation WHERE group_id=? AND seq NOT IN
+            (SELECT seq FROM group_conversation WHERE group_id=? ORDER BY seq DESC LIMIT 200)""",(group,group))
         db.execute("""DELETE FROM group_own_replies WHERE group_id=? AND id NOT IN
             (SELECT id FROM group_own_replies WHERE group_id=? ORDER BY id DESC LIMIT 20)""",(group,group))
 
@@ -102,6 +111,7 @@ class GroupLearningStore(GroupStyleStore):
                 db.execute("UPDATE group_settings SET chat=0 WHERE group_id=?",(group,))
             else:
                 db.execute("UPDATE group_settings SET collect=0,chat=0 WHERE group_id=?",(group,))
+                db.execute("DELETE FROM group_conversation WHERE group_id=?",(group,))
                 db.execute("UPDATE group_style_runs SET token='',lease_until=0 WHERE group_id=?",(group,))
                 db.execute("UPDATE group_learning_runs SET token='',lease_until=0 WHERE group_id=?",(group,))
             if action == "clear":

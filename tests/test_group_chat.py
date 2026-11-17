@@ -87,6 +87,10 @@ def test_proactive_reply_uses_only_group_samples_and_is_throttled(tmp_path, monk
     assert generate.await_count == 1 and len(bot.sent) == 1
     assert store.status(GROUP)["count"] == 5 and store.status(GROUP)["sent"] == 1
     assert generate.call_args.args[0] == GROUP
+    target = next(row for row in generate.call_args.args[1] if row["id"] == generate.call_args.args[-1])
+    assert target["text"] == "这牌也太离谱了"
+    assert bot.sent[0][0].type == "reply"
+    assert bot.sent[0][0].data["id"] == "3"
     assert all(item["speaker"].startswith("成员") for item in generate.call_args.args[1])
 
 

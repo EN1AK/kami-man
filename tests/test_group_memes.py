@@ -95,7 +95,7 @@ def test_one_generation_sends_image_with_optional_text_and_never_learns_it(tmp_p
     bot=FakeBot()
     asyncio.run(chat.GroupChatService(store,draw=lambda:0,meme_library=lib).observe(bot,event(mid=9)))
     assert generate.await_count==1 and len(bot.sent)==1
-    assert [seg.type for seg in bot.sent[0]]==(['text','image'] if text else ['image'])
+    assert [seg.type for seg in bot.sent[0]]==(['reply','text','image'] if text else ['reply','image'])
     assert store.status(GROUP)['count']==4 and store.status(GROUP)['sent']==1
     with closing(store.connect()) as db:
         assert db.execute('select count(*) from group_samples where text=?',(text,)).fetchone()[0]==0
@@ -109,7 +109,7 @@ def test_image_cooldown_or_failure_falls_back_to_text(tmp_path,monkeypatch):
     monkeypatch.setattr(chat,'generate_reply',AsyncMock(return_value=chat.GroupReply('正常短句','happy')))
     bot=FakeBot()
     asyncio.run(chat.GroupChatService(store,draw=lambda:0,meme_library=lib).observe(bot,event(mid=9)))
-    assert len(bot.sent)==1 and [seg.type for seg in bot.sent[0]]==['text']
+    assert len(bot.sent)==1 and [seg.type for seg in bot.sent[0]]==['reply','text']
 
 
 @pytest.mark.parametrize('action',['clear','collect_off','chat_off','new_message'])
