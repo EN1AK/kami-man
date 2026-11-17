@@ -13,7 +13,7 @@ import httpx
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from services.ygo_api import IMAGE_DIR, MAX_IMAGE_BYTES, PRIMARY_IMG, FALLBACK_IMG, LEGACY_IMG, valid_card_image
+from services.ygo_api import IMAGE_DIR, MAX_IMAGE_BYTES, PRIMARY_IMG, FALLBACK_IMG, LEGACY_IMG, PREVIEW_IMG, valid_card_image
 
 GIB = 1024**3
 
@@ -33,6 +33,18 @@ async def main(database):
             for (raw,) in db.execute("SELECT deck FROM observations ORDER BY rowid DESC LIMIT 4000"):
                 d = json.loads(raw)
                 popular.update(set(d.get("main", []) + d.get("extra", []) + d.get("side", [])))
+    from scripts.update_ygo_card_aliases import refresh_aliases
+    latest_report = max((IMAGE_DIR.parent/"mycard_reports").glob("*-usage.json"), default=None)
+    report_ids = []
+    if latest_report:
+        try:
+            data = json.loads(latest_report.read_text())["data"]
+            report_ids = [row["card"] for key in ("rows", "extra_rows") for row in data[key]]
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    candidates = dict.fromkeys(report_ids + [i for i, _ in popular.most_common()])
+    aliases = await refresh_aliases(database, [i for i in candidates if type(i) is int and i > 0 and i not in ids])
+    ids.update(aliases)
     order = dict.fromkeys([89631139,46986414,56506740] + [i for i,_ in popular.most_common()] + sorted(ids))
     pending = [i for i in order if i in ids and not (IMAGE_DIR/f"{i}.img").is_file()]
     queue = iter(pending)
@@ -48,7 +60,8 @@ async def main(database):
             nonlocal used, next_request, stop, misses
             for i in queue:
                 if stop: return
-                for template in (PRIMARY_IMG,FALLBACK_IMG,LEGACY_IMG):
+                sources = (PREVIEW_IMG, PRIMARY_IMG, FALLBACK_IMG, LEGACY_IMG) if i in aliases else (PRIMARY_IMG, FALLBACK_IMG, LEGACY_IMG)
+                for template in sources:
                     try:
                         async with lock:
                             await asyncio.sleep(max(0,next_request-time.monotonic()))

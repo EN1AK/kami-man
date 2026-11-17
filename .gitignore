@@ -58,3 +58,5 @@ data/private_memes.db*
 /data/mycard_reports/
 
 /data/ygo_images/
+
+/data/ygo_card_aliases.json

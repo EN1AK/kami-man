@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Yu-Gi-Oh card resources weekly
+
+[Timer]
+OnCalendar=Mon *-*-* 05:00:00 Asia/Shanghai
+Persistent=true
+Unit=kami-card-resources.service
+
+[Install]
+WantedBy=timers.target

@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 YGOCDB_API = "https://ygocdb.com/api/v0/"
 PRIMARY_IMG = "https://cdncf.moecube.com/images/ygopro-images-zh-CN/{id}.jpg"
 FALLBACK_IMG = "https://cdn02.moecube.com/images/ygopro-images-zh-CN/{id}.jpg"
+PREVIEW_IMG = "https://cdn02.moecube.com/ygopro-super-pre/data/pics/{id}.jpg"
 LEGACY_IMG = "https://cdn.233.momobako.com/ygoimg/ygopro/{id}.webp"
 IMAGE_DIR = Path(__file__).resolve().parents[1] / "data" / "ygo_images"
 MAX_IMAGE_BYTES = 2 * 1024**2
@@ -119,7 +120,10 @@ def _read_card_image(card_id):
 async def _fetch_card_image(card_id):
     async with _IMAGE_SLOTS:
         async with httpx.AsyncClient(timeout=httpx.Timeout(4,connect=2),follow_redirects=True) as client:
-            for template in (PRIMARY_IMG,FALLBACK_IMG,LEGACY_IMG):
+            sources = (PRIMARY_IMG,FALLBACK_IMG,LEGACY_IMG)
+            if int(card_id) >= 100_000_000:
+                sources = (PREVIEW_IMG, *sources)
+            for template in sources:
                 if _IMAGE_COOLDOWN.get(template,0)>time.monotonic():continue
                 try:
                     r=await client.get(template.format(id=card_id))

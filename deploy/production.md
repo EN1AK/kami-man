@@ -639,3 +639,15 @@ multiple rooms it stays replay-blocked until it leaves and rejoins. Suppression
 also omits replay delivery hints; participants retain their own replay delivery.
 The latest commit only clarifies equivalent checks. Rejected connection per-IP
 slot accounting was also fixed on Nov 2; this does not raise the IP connection cap.
+
+
+## Weekly Yu-Gi-Oh card resources
+
+Install `deploy/kami-card-resources.{service,timer}` with systemd and enable the
+timer. It runs Mondays at 05:00 Asia/Shanghai after the existing catalog update
+service. The catalog also retains its hourly checks. The weekly job fills missing
+server-only images within the existing 1.5 GiB cache and 2 GiB free-space limits,
+and resolves simulator IDs seen in the usage report or recent decks via YGOCDB.
+A local catalog match takes precedence. Usage/extra snapshots and images are
+rebuilt when the card catalog or alias file changes. Run
+`sudo systemctl start kami-card-resources.service` for an immediate update.

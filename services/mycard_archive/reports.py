@@ -1,6 +1,7 @@
 """Daily aggregate snapshots and bounded PNG cache; never sends QQ messages."""
 import asyncio
 from datetime import datetime,timedelta
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -11,13 +12,23 @@ import aiohttp
 from .charts import render_usage,render_extra,render_matchups,render_impact
 from .impact import impact_stats
 from .outcomes import MatchResults
-from .statistics import top_players,card_usage,card_names,matchup_stats
+from .statistics import top_players,card_usage,card_names,matchup_stats,card_db_path,CARD_ALIASES_FILE
 
 CHINA=ZoneInfo("Asia/Shanghai")
 SNAPSHOT_VERSION=11
 IMPACT_RENDER_VERSION=4
 CACHE_LIMIT=32*1024**2
 FILE_NAME=re.compile(r"^(\d{4}-\d{2}-\d{2})-(usage|extra|(?:matchups|impact|impact-extra)-(?:top(?:100|500)-)?[1-9]\d?)(?:-v[1-9]\d*)?(?:-r[1-9]\d*)?(?:-p[1-9]\d*)?\.(json|png)$")
+
+def usage_catalog_revision():
+    stamps=[]
+    for path in (card_db_path(), CARD_ALIASES_FILE):
+        try:
+            stat=path.stat()
+            stamps.append((stat.st_ino,stat.st_size,stat.st_mtime_ns))
+        except OSError:stamps.append(None)
+    return int.from_bytes(hashlib.sha256(repr(stamps).encode()).digest()[:8],"big") or 1
+
 
 class ChartReports:
     def __init__(self,store,root=None,clock=time.time):
@@ -59,11 +70,12 @@ class ChartReports:
         day=datetime.fromtimestamp(now,CHINA).date().isoformat()
         key="usage" if kind=="usage" else f"{kind}-top{rank_cutoff}-{days}"
         path=self.root/f"{day}-{key}.json"
+        revision=usage_catalog_revision() if kind=="usage" else None
         if path.is_file() and not path.is_symlink():
             try:
                 value=await asyncio.to_thread(path.read_text,encoding="utf-8")
                 snapshot=json.loads(value)
-                if snapshot.get("day")==day and snapshot.get("key")==key and snapshot.get("version")==SNAPSHOT_VERSION:
+                if snapshot.get("day")==day and snapshot.get("key")==key and snapshot.get("version")==SNAPSHOT_VERSION and (kind!="usage" or snapshot.get("catalog_revision")==revision):
                     return snapshot
             except (OSError,ValueError,AttributeError):pass
         if kind=="usage":
@@ -75,7 +87,7 @@ class ChartReports:
             await asyncio.to_thread(MatchResults,self.store)
             data=await asyncio.to_thread(impact_stats if kind=="impact" else matchup_stats,self.store,days,now,rank_cutoff=rank_cutoff)
             names={}
-        snapshot=dict(day=day,key=key,data=data,names=names,version=SNAPSHOT_VERSION,
+        snapshot=dict(day=day,key=key,data=data,names=names,version=SNAPSHOT_VERSION,catalog_revision=revision,
             generated_at=datetime.fromtimestamp(now,CHINA).strftime("%Y-%m-%d %H:%M 北京时间"))
         await asyncio.to_thread(self.save,path,json.dumps(snapshot,ensure_ascii=False).encode("utf-8"),day)
         return snapshot
@@ -102,6 +114,8 @@ class ChartReports:
     async def _image_from_snapshot(self,kind,page,snapshot):
         image_key="extra" if kind=="extra" else snapshot["key"].replace("impact-","impact-extra-",1) if kind=="impact-extra" else snapshot["key"]
         render_suffix=f"-r{IMPACT_RENDER_VERSION}" if kind in {"impact","impact-extra"} else ""
+        if kind in {"usage","extra"} and snapshot.get("catalog_revision"):
+            render_suffix=f"-r{snapshot['catalog_revision']}"
         path=self.root/f"{snapshot['day']}-{image_key}-v{SNAPSHOT_VERSION}{render_suffix}-p{page}.png"
         if path.is_file() and not path.is_symlink():
             raw=await asyncio.to_thread(path.read_bytes)

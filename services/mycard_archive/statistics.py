@@ -122,18 +122,32 @@ def card_usage(store,players,now=None,names=None):
                 side_observed=side_observed,oldest=min(times) if times else None,newest=max(times) if times else None,
                 total_cards=len(rows),extra_total_cards=len(extra_rows),rows=rows[:100],extra_rows=extra_rows[:100])
 
+CARD_ALIASES_FILE=Path(__file__).resolve().parents[2]/"data"/"ygo_card_aliases.json"
+
+
+def card_db_path():
+    return Path(os.getenv("MYCARD_CARD_DB", str(Path(__file__).resolve().parents[3]/"ygo-rag/data/cards.cdb"))).resolve()
+
+
 def card_names(codes):
     codes=list(dict.fromkeys(codes))
     names={}
-    path=Path(os.getenv("MYCARD_CARD_DB", str(Path(__file__).resolve().parents[3]/"ygo-rag/data/cards.cdb"))).resolve()
+    path=card_db_path()
     if not path.is_file():
         return names
+    try:
+        aliases=json.loads(CARD_ALIASES_FILE.read_text(encoding="utf-8"))
+    except (OSError,ValueError):aliases={}
+    if not isinstance(aliases,dict):aliases={}
+    fallback={code:aliases[str(code)] for code in codes if isinstance(aliases.get(str(code)),dict)}
+    wanted=list(dict.fromkeys(codes+[v["id"] for v in fallback.values() if type(v.get("id")) is int]))
     with sqlite3.connect(path.as_uri()+"?mode=ro",uri=True) as db:
-        for start in range(0,len(codes),500):
-            part=codes[start:start+500]
+        for start in range(0,len(wanted),500):
+            part=wanted[start:start+500]
             if part:
                 names.update(db.execute("SELECT id,name FROM texts WHERE id IN ("+",".join("?" for _ in part)+")",part))
-    return names
+    return {code: name for code in codes if (name := names.get(code) or
+            names.get(fallback.get(code,{}).get("id")) or fallback.get(code,{}).get("name"))}
 
 def matchup_stats(store,days=30,now=None,classifier=classify_archetype,rank_cutoff=100):
     if type(days) is not int or not 1<=days<=90:
