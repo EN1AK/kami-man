@@ -182,14 +182,19 @@ def test_queue_priority_uses_target_staleness_and_top100(tmp_path, monkeypatch):
     def room(name, rank=200, seen=1):
         return RoomState({"id":name}, [name,"opponent"], first_seen=seen,
                          eligible=(name,), ranks={name:rank})
-    c.latest_observed.update(fresh=1_000_000, stale=900_000,
-                            target=1_000_000, top=1_000_000)
+    c.deck_coverage.update(fresh=(1_000_000, 15), stale=(800_000, 15),
+                           target=(1_000_000, 15), top=(1_000_000, 8),
+                           incomplete=(1_000_000, 8), opponent=(1_000_000, 15))
     c.tracked.add("target")
     assert c.queue_priority(room("target")) < c.queue_priority(room("missing"))
     assert c.queue_priority(room("missing")) < c.queue_priority(room("stale"))
     assert c.queue_priority(room("stale")) < c.queue_priority(room("fresh"))
-    assert c.queue_priority(room("top", rank=10)) < c.queue_priority(room("fresh"))
+    assert c.queue_priority(room("incomplete")) < c.queue_priority(room("fresh"))
+    assert c.queue_priority(room("top", rank=10)) < c.queue_priority(room("incomplete"))
     assert c.queue_priority(room("fresh", seen=1)) < c.queue_priority(room("fresh", seen=2))
+    two_missing = room("missing")
+    two_missing.players[1] = "unranked-newcomer"
+    assert c.queue_priority(two_missing) < c.queue_priority(room("missing"))
     c.tracked.clear()
     assert c.queue_priority(room("target"))[0] == 1
     asyncio.run(c.close())

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from .preview_ids import add_preview_ids, alias_stamp
 
 DEFAULT_RULES=Path(__file__).with_name("archetype_rules.json")
 
@@ -55,16 +56,19 @@ def read_rules(body):
 
 
 @lru_cache(maxsize=4)
-def read_catalog(path,modified,size,inode):
+def read_catalog(path,modified,size,inode,aliases):
     with sqlite3.connect(Path(path).as_uri()+"?mode=ro",uri=True) as db:
-        return {code:(int(fields)&((1<<64)-1),name) for code,fields,name in db.execute(
+        catalog = {code:(int(fields)&((1<<64)-1),name) for code,fields,name in db.execute(
             "SELECT d.id,d.setcode,t.name FROM datas d JOIN texts t ON t.id=d.id")}
+
+
+    return add_preview_ids(catalog, aliases)
 
 
 def recognize_archetype(deck,rules,catalog):
     counts=Counter(deck.main)
     field_names={int(k):v for k,v in rules["field_names"].items()}
-    ignored=set(rules.get("ignored_fields",[]))
+    ignored=set(rules.get("ignored_fields",[])) | {0x1c6}  # Generic Dominus traps.
     explicit={f:r["label"] for r in rules["groups"] for f in r["fields"]}
     group_rules={r["label"]:r for r in rules["groups"]}
     memberships={};identities={}
@@ -96,6 +100,11 @@ def recognize_archetype(deck,rules,catalog):
         unique=len({identities[c] for c in codes})
         if copies>=minimum and unique>=unique_min:
             candidates.append(dict(label=label,copies=copies,unique=unique,anchored=anchored,codes=codes))
+    from .semantic_names import jounouchi_core
+    core=jounouchi_core(deck)
+    if core:
+        candidates=[r for r in candidates if r["label"] not in {"战士","城之内"}]
+        candidates.append(core)
     candidates.sort(key=lambda r:(-r["copies"],-r["unique"],r["label"]))
     if not candidates:return dict(name="未识别",cores=[],evidence=[])
     primary=candidates[0];cores=[primary]
@@ -116,4 +125,4 @@ def classify_archetype(deck,rules_path=None):
     path=custom if configured or custom and custom.is_file() else DEFAULT_RULES
     rules=read_rules(path.read_text(encoding="utf-8"))
     db=Path(os.getenv("MYCARD_CARD_DB",str(Path(__file__).resolve().parents[3]/"ygo-rag/data/cards.cdb")))
-    return recognize_archetype(deck,rules,read_catalog(*stamp(db)))["name"]
+    return recognize_archetype(deck,rules,read_catalog(*stamp(db), alias_stamp()))["name"]

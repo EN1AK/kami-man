@@ -1,0 +1,7 @@
+nonebot2[fastapi,httpx,websockets]==2.5.0
+nonebot-adapter-qq==1.7.4
+aiohttp
+beautifulsoup4
+pytz
+matplotlib
+Pillow

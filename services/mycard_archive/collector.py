@@ -84,7 +84,7 @@ class Collector:
     def __init__(self,config,*,store=None,watch_room=watch):
         self.config=config;self.store=store or ArchiveStore(config.root,config.archive_limit_bytes);self.watch_room=watch_room
         self.rooms={};self.session=None;self.rank=None;self.credentials=None;self.ws_task=None
-        self.latest_observed={}
+        self.deck_coverage={}
         self.tracked=set();self.tracking=None;self.results=None;self.result_task=None
         self.closed=False;self.ws_connected=False;self.initialized=False;self.last_error="";self.excluded=0
         self.capture_slots=min(config.concurrency,1+len(config.extra_credentials))
@@ -216,18 +216,35 @@ class Collector:
             if await pause_or_end(ended,delay):return False
         return False
 
+    async def refresh_deck_coverage(self, players):
+        # latest() includes Side cards already observed across the same build.
+        def read():
+            result = {}
+            for player in players:
+                deck = self.store.latest(player)
+                if deck:
+                    result[player] = (deck["last_seen"], len(deck["side"]))
+            return result
+
+        for player, coverage in (await asyncio.to_thread(read)).items():
+            previous = self.deck_coverage.get(player)
+            if previous is None or coverage[0] >= previous[0]:
+                self.deck_coverage[player] = coverage
+
     def queue_priority(self, state):
-        players = tuple(set(state.eligible or state.players) | (set(state.players) & self.tracked))
-        targeted = any(player in self.tracked for player in players)
-        now = int(time.time())
-        urgency = []
-        for player in players:
-            observed = self.latest_observed.get(player)
-            age = 72*3600 if observed is None else min(72*3600, max(0, now-observed))
+        now = time.time()
+        weight = 0
+        for player in state.players:
+            coverage = self.deck_coverage.get(player)
+            if coverage is None:
+                score = 2
+            else:
+                last_seen, side_count = coverage
+                score = int(side_count < 15) + int(now - last_seen > 48 * 3600)
             rank = state.ranks.get(player)
-            bonus = 6*3600 if type(rank) is int and 1 <= rank <= 100 else 0
-            urgency.append(age + bonus)
-        return (0 if targeted else 1, -max(urgency, default=0), state.first_seen)
+            weight += score * (2 if type(rank) is int and 1 <= rank <= 100 else 1)
+        targeted = any(player in self.tracked for player in state.players)
+        return (0 if targeted else 1, -weight, state.first_seen)
 
     async def identity(self,state):
         while not state.ended.is_set():
@@ -262,7 +279,7 @@ class Collector:
                     if await pause_or_end(state.ended,60):return
             if not qualifying:self.excluded+=1;return
             state.eligible=tuple(qualifying);state.ranks=ranks
-            self.latest_observed.update(await asyncio.to_thread(self.store.last_observed,state.eligible))
+            await self.refresh_deck_coverage(state.players)
             match_id,active=await asyncio.to_thread(self.store.begin,state.room,state.players,ranks,state.first_seen)
             state.match_id=match_id
             if not active:return
@@ -313,7 +330,7 @@ class Collector:
                 else:await asyncio.to_thread(self.store.issue,match_id,"对局在等待观战名额时结束")
             if not normal_end:await asyncio.to_thread(self.store.issue,match_id,"未确认正常结束信号；完整性以实际收到的录像为准")
             await asyncio.to_thread(self.store.finish,match_id,normal_end)
-            self.latest_observed.update(await asyncio.to_thread(self.store.last_observed,state.players))
+            await self.refresh_deck_coverage(state.players)
         except asyncio.CancelledError:raise  # active rows are recovered after restart
         except Exception as exc:self.error("归档处理失败："+type(exc).__name__)
         finally:
@@ -331,7 +348,7 @@ class Collector:
         result_checked,result_matched=await asyncio.to_thread(self.results.progress) if self.results else (0,0)
         pending="已配置" if self.config.credentials.exists() else "未配置，录像采集等待登录凭据"
         return (f"MyCard 前 {self.config.cutoff} 归档\n公开房间监听：{'已连接' if self.ws_connected else '重连中'}\n"
-                f"指定采集名单 {len(self.tracked)} 人（不受排名限制）\n调度：指定优先、卡组时效优先、前100加权；进行中不抢占\n观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.capture_slots}（配置账号 {1+len(self.config.extra_credentials)} 个，每账号单房间）\n"
+                f"指定采集名单 {len(self.tracked)} 人（不受排名限制）\n调度：指定优先；双方未收录、Side 不足及超过 48 小时未更新加权，前100权重翻倍；进行中不抢占\n观战凭据：{pending}\n已跟踪房间 {len(self.rooms)}；前排待采集 {eligible}；正在观战 {sum(s.connected for s in self.rooms.values())}/{self.capture_slots}（配置账号 {1+len(self.config.extra_credentials)} 个，每账号单房间）\n"
                 f"正常结束 {stats.get('complete',0)}；部分录像 {stats.get('partial',0)}；未收到录像 {stats.get('unavailable',0)}\n"
                 f"官方胜负已核实 {result_matched} 场（已尝试 {result_checked} 场）\n"
                 f"已保存录像 {stats['replays']}；卡组玩家 {stats['players']}；home 已转存 {offloaded} 场\n{quota}\n入场冷却 {max(0,int(self.cooldown_until-time.monotonic()))} 秒\n最近状态：{self.last_error or '无异常'}")

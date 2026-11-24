@@ -2,6 +2,7 @@
 from collections import Counter
 from datetime import datetime
 import base64
+import math
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -43,4 +44,28 @@ def deck_summary(version,rules_path):
     try:lines.append("卡组链接："+deck_url(deck,title=title))
     except ValueError:lines.append("此观测结果无法编码为单个分享链接，原始 YDK 仍完整保留。")
     lines.append("最近归档："+version["match_id"])
+    return "\n".join(lines)
+
+
+
+def arena_score_text(value):
+    if isinstance(value,bool) or not isinstance(value,(int,float,str)):
+        return "分数未知"
+    try:number=float(value)
+    except (ValueError,OverflowError):return "分数未知"
+    if not math.isfinite(number):return "分数未知"
+    return f"{number:.2f}".rstrip('0').rstrip('.')+" 分"
+
+
+def top_deck_entry(rank,row,version,rules_path):
+    player=row['username']
+    heading=f"{rank}. {player}｜{arena_score_text(row.get('pt'))}"
+    if version is None:return heading+"\n暂无已采集卡组"
+    from .replay import ObservedDeck
+    deck=ObservedDeck(version['player'],tuple(version['main']),tuple(version['extra']),tuple(version['side']))
+    name=classify(deck,rules_path)
+    lines=[heading,"卡组："+name,"卡组更新："+moment(version['last_seen'])]
+    title=player+("〖"+name+"〗" if name!='未识别' else '')
+    try:lines.append(deck_url(deck,title=title))
+    except ValueError:lines.append("卡组链接暂不可用")
     return "\n".join(lines)

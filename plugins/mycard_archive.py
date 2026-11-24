@@ -10,7 +10,7 @@ from nonebot.params import CommandArg
 from nonebot.permission import SUPERUSER
 from services.mycard_api import get_bind_by_qq
 from services.mycard_archive.collector import ArchiveConfig,Collector
-from services.mycard_archive.presentation import deck_summary,moment,classify
+from services.mycard_archive.presentation import deck_summary,moment,classify,top_deck_entry
 from services.mycard_archive.replay import ObservedDeck
 from services.mycard_archive.store import ArchiveStore
 from services.onebot_forward import make_forward_node
@@ -77,10 +77,11 @@ async def archive_status():
 
 @rules_command.handle()
 async def check_deck_rules():
-    from services.mycard_archive.naming import load_rules
+    from services.mycard_archive.naming import load_rules,load_setnames
     try:
         rules=await asyncio.to_thread(load_rules,library().rules_path)
-        text=f"命名规则正常：{len({rule['label'] for rule in rules})} 类，{len(rules)} 条规则。\n按主卡组识别，混合名称按投入张数排序；规则修改后查询即时生效。"
+        names=await asyncio.to_thread(load_setnames)
+        text=f"字段命名正常：{len(names)} 个字段名称。\n只统计主卡，同系列至少 3 张；合并父子字段，过滤融合、禁忌的、欢聚友伴；混合名称按投入张数排序。卡库和字段表更新后即时生效。"
     except (ValueError,OSError) as exc:
         text="命名规则检查失败："+str(exc)
     await rules_command.finish(MessageSegment.text(text))
@@ -163,9 +164,9 @@ async def top_deck_info(bot:Bot,event:MessageEvent):
         store=library()
         def summaries():
             text=[]
-            for i,name in enumerate(names,1):
-                version=store.latest(name)
-                text.append(f"{i}. {name}\n"+(deck_summary(version,store.rules_path) if version else "暂无已采集卡组"))
+            for i,row in enumerate(rows[:100],1):
+                version=store.latest(row['username'])
+                text.append(top_deck_entry(i,row,version,store.rules_path))
             return text
         entries=await asyncio.to_thread(summaries)
     except Exception as exc:
@@ -173,7 +174,7 @@ async def top_deck_info(bot:Bot,event:MessageEvent):
         await top_decks.finish("官方前排榜单或卡组归档暂不可用，请稍后重试。")
     nodes=[make_forward_node(int(bot.self_id),"MyCard前100卡组",Message(MessageSegment.text(entry))) for entry in entries]
     try:
-        preview={"source":"前排卡组信息","summary":"官方前100，逐人显示已归档卡组","prompt":"[前排卡组信息]","news":[{"text":"MyCard 官方前100卡组"}]}
+        preview={"source":"前排卡组信息","summary":"官方前100，分数与已归档卡组","prompt":"[前排卡组信息]","news":[{"text":"MyCard 官方前100分数与卡组"}]}
         if isinstance(event,GroupMessageEvent):await bot.call_api("send_group_forward_msg",group_id=event.group_id,messages=nodes,**preview)
         else:await bot.call_api("send_private_forward_msg",user_id=event.user_id,messages=nodes,**preview)
     except Exception as exc:

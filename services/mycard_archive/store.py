@@ -8,11 +8,11 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-import stat
 import threading
 import time
 import uuid
 import zipfile
+from .quota import ArchiveUsage
 from .replay import ObservedDeck,parse_replay,consolidate,MAX_PAYLOAD
 
 DEFAULT_ARCHIVE_LIMIT = 10 * 1024 ** 3
@@ -36,6 +36,7 @@ class ArchiveStore:
         self.reserve_bytes=min(64*1024**2,limit_bytes//20)
         self.write_lock=threading.Lock()
         self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True)
+        self.usage=ArchiveUsage(self.root)
         self.path=self.root/"archive.sqlite3";self.rules_path=self.root/"deck-rules.json"
         with self.connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -68,18 +69,20 @@ class ArchiveStore:
         return info.st_blocks*512 if hasattr(info,"st_blocks") else info.st_size
 
     def usage_bytes(self):
-        total=0
-        for base,dirs,files in os.walk(self.root,followlinks=False):
-            dirs[:]=[name for name in dirs if not (Path(base)/name).is_symlink()]
-            for name in files:
-                path=Path(base)/name
-                try:
-                    info=path.stat(follow_symlinks=False)
-                except FileNotFoundError:
-                    continue
-                if stat.S_ISREG(info.st_mode):
-                    total+=info.st_blocks*512 if hasattr(info,"st_blocks") else info.st_size
-        return total
+        return self.usage.total()
+
+    def _write_evidence(self, path, body, *, capture=False):
+        unit = self.usage.unit
+        incoming = ((len(body) + unit - 1) // unit) * unit
+        with self.usage.locked():
+            if capture:
+                if path.exists():
+                    return
+                self.require_capacity(incoming)
+            elif self.usage_bytes() + incoming > self.limit_bytes:
+                raise ArchiveLimitReached("归档空间不足，无法写入卡表或清单")
+            with self.usage.changing(path):
+                atomic_bytes(path, body)
 
     @property
     def capture_ceiling(self):
@@ -144,9 +147,7 @@ class ArchiveStore:
         # Reserve space before the first write; duplicates never consume the quota twice.
         target=directory/(digest+".yrp")
         with self.write_lock:
-            if not target.exists():
-                self.require_capacity(((len(raw)+4095)//4096)*4096)
-                atomic_bytes(target,raw)
+            self._write_evidence(target,raw,capture=True)
             with self.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
                 ordinal=db.execute("SELECT COALESCE(MAX(ordinal),0)+1 FROM replays WHERE match_id=?",(match_id,)).fetchone()[0]
@@ -168,8 +169,8 @@ class ArchiveStore:
         for row in rounds:
             for i,data in enumerate(row["decks"],1):
                 deck=ObservedDeck(data["player"],tuple(data["main"]),tuple(data["extra"]))
-                atomic_bytes(self.directory(match_id)/f"round-{row['ordinal']:02}-player-{i}.ydk",deck.ydk().encode("utf-8"))
-        for i,deck in enumerate(decks,1):atomic_bytes(self.directory(match_id)/f"merged-player-{i}.ydk",deck.ydk().encode("utf-8"))
+                self._write_evidence(self.directory(match_id)/f"round-{row['ordinal']:02}-player-{i}.ydk",deck.ydk().encode("utf-8"))
+        for i,deck in enumerate(decks,1):self._write_evidence(self.directory(match_id)/f"merged-player-{i}.ydk",deck.ydk().encode("utf-8"))
         final=status or ("complete" if normal_end and rounds and all(not row["error"] for row in rounds) else "partial" if rounds else "unavailable")
         with self.connect() as db:
             match=db.execute("SELECT * FROM matches WHERE id=?",(match_id,)).fetchone()
@@ -192,7 +193,7 @@ class ArchiveStore:
     def write_manifest(self,match_id):
         data=self.match(match_id);data["replays"]=self.replays(match_id)
         data["side_complete"]=False;data["first_seen_is_monitor_time"]=True
-        atomic_bytes(self.directory(match_id)/"manifest.json",json.dumps(data,ensure_ascii=False,indent=2).encode("utf-8"))
+        self._write_evidence(self.directory(match_id)/"manifest.json",json.dumps(data,ensure_ascii=False,indent=2).encode("utf-8"))
 
     def offloaded(self,match_id):
         with self.connect() as db:
@@ -222,10 +223,11 @@ class ArchiveStore:
                     if path.name=="manifest.json" or path.suffix in {".ydk",".yrp"}:zip_file.write(path,path.name)
                 if not expected_raw.issubset(zip_file.namelist()):
                     raise ValueError("原始录像已转存或暂不可用，请在 home 主机查看归档。")
-            with self.write_lock:
+            with self.write_lock, self.usage.locked():
                 previous=self.allocated_bytes(output) if output.exists() else 0
                 self.require_capacity(self.allocated_bytes(temp),previous)
-                temp.replace(output)
+                with self.usage.changing(output):
+                    temp.replace(output)
         finally:temp.unlink(missing_ok=True)
         return output
 

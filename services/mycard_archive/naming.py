@@ -1,12 +1,79 @@
-"""Deterministic deck names from feature cards; runtime rules hot-reload without network access."""
+"""Main-deck setcode names; the shared catalog and labels hot-reload locally."""
 from collections import Counter
 from functools import lru_cache
 import json
 import os
 from pathlib import Path
 import sqlite3
+from .preview_ids import add_preview_ids, alias_stamp
 
 DEFAULT_RULES = Path(__file__).with_name("deck_names.json")
+DEFAULT_SETNAMES = Path(__file__).with_name("setnames.conf")
+EXCLUDED_FIELDS = frozenset({"融合", "禁忌的", "欢聚友伴"})
+# Generic Dominus traps must never contribute to a deck identity.
+EXCLUDED_FAMILIES = frozenset({0x1c6})
+
+
+def card_db_path():
+    return Path(os.getenv("MYCARD_CARD_DB", str(Path(__file__).resolve().parents[3] / "ygo-rag/data/cards.cdb")))
+
+
+def setnames_path():
+    configured = os.getenv("MYCARD_SETNAMES")
+    shared = Path("/home/ubuntu/qqbot/shared-ygo/strings.conf")
+    return Path(configured) if configured else shared if shared.exists() else DEFAULT_SETNAMES
+
+
+@lru_cache(maxsize=4)
+def _setnames(path, modified, size, inode):
+    names = {}
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        parts = line.split(maxsplit=2)
+        if len(parts) == 3 and parts[0] == "!setname":
+            name = parts[2].split("\t", 1)[0].split("|", 1)[0].strip()
+            if name:
+                names[int(parts[1], 16)] = name
+    if not names:
+        raise ValueError("字段名称表为空")
+    return names
+
+
+def load_setnames(path=None):
+    return _setnames(*_stamp(Path(path) if path is not None else setnames_path()))
+
+
+@lru_cache(maxsize=4)
+def _field_catalog(path, modified, size, inode, aliases):
+    with sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True) as db:
+        return add_preview_ids(dict(db.execute("SELECT id,setcode FROM datas")), aliases)
+
+
+def recognize_fields(deck, *, catalog=None, names=None):
+    names = load_setnames() if names is None else names
+    if catalog is None:
+        catalog = _field_catalog(*_stamp(card_db_path()), alias_stamp())
+    counts, observed = Counter(), {}
+    for code in deck.main:
+        value = int(catalog.get(code, 0)) & ((1 << 64) - 1)
+        families = set()
+        for shift in range(0, 64, 16):
+            field = (value >> shift) & 0xffff
+            if field == 0:
+                continue
+            family = field & 0xfff
+            families.add(family)
+            observed.setdefault(family, set()).add(field)
+        counts.update(families)
+    labels, scores = [], {}
+    for family in sorted(counts, key=lambda key: (counts[key], key)):
+        fields = observed[family]
+        selected = family if family in fields or len(fields) > 1 else next(iter(fields))
+        label = names.get(selected) or names.get(family) or names.get(min(fields))
+        if family not in EXCLUDED_FAMILIES and counts[family] >= 3 and label and label not in EXCLUDED_FIELDS:
+            labels.append(label)
+            scores[label] = counts[family]
+    name = "".join(labels)
+    return {"name": ("60" if name and len(deck.main) == 60 else "") + name or "未识别", "labels": labels, "counts": scores}
 
 
 def _stamp(path):
@@ -68,7 +135,7 @@ def load_rules(path, *, defaults=DEFAULT_RULES):
 
 
 @lru_cache(maxsize=4)
-def _catalog(path, modified, size, inode):
+def _catalog(path, modified, size, inode, aliases):
     with sqlite3.connect(Path(path).as_uri() + "?mode=ro", uri=True) as db:
         rows = db.execute("SELECT d.id,d.alias,t.name FROM datas d JOIN texts t ON t.id=d.id").fetchall()
     by_id = {code: (alias, name) for code, alias, name in rows}
@@ -83,14 +150,14 @@ def _catalog(path, modified, size, inode):
             seen.add(target)
             current = target
         result[code] = current
-    return result
+    return add_preview_ids(result, aliases)
 
 
 def canonical_codes(path=None):
     if path is None:
-        path = Path(os.getenv("MYCARD_CARD_DB", str(Path(__file__).resolve().parents[3] / "ygo-rag/data/cards.cdb")))
+        path = card_db_path()
     try:
-        return _catalog(*_stamp(Path(path)))
+        return _catalog(*_stamp(Path(path)), alias_stamp())
     except (OSError, sqlite3.Error):
         return {}
 
@@ -120,4 +187,24 @@ def recognize(deck, rules, *, identities=None):
 
 
 def deck_name(deck, path):
-    return recognize(deck, load_rules(path))["name"]
+    path = Path(path)
+    data, custom = _read(*_stamp(path)) if path.exists() else ({}, ())
+    # Explicit custom-only configurations retain the existing manual-rule contract.
+    if not data.get("use_defaults", True):
+        return recognize(deck, custom)["name"]
+    result = recognize_fields(deck)
+    from .semantic_names import jounouchi_core
+    core = jounouchi_core(deck)
+    if core:
+        scores = {k:v for k,v in result["counts"].items() if k != "战士"}
+        scores["城之内"] = core["copies"]
+        result = {"counts":scores,"name":("60" if len(deck.main)==60 else "")+"".join(sorted(scores,key=scores.get))}
+
+    if not custom:
+        return result["name"]
+    manual = recognize(deck, custom)
+    overridden = {rule["label"] for rule in custom}
+    scores = {label: count for label, count in result["counts"].items() if label not in overridden}
+    scores.update(manual["counts"])
+    name = "".join(sorted(scores, key=scores.get))
+    return ("60" if name and len(deck.main) == 60 else "") + name or "未识别"

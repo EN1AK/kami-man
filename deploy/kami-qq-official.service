@@ -1,0 +1,28 @@
+[Unit]
+Description=Kami Man official QQ query interface
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/qqbot/kami-man
+Environment=KAMI_OFFICIAL_CREDENTIALS=/home/ubuntu/.config/kami-qq-official/credentials.json
+Environment=KAMI_OFFICIAL_BACKENDS=/home/ubuntu/.config/kami-qq-official/backends.json
+Environment=MPLCONFIGDIR=/home/ubuntu/.local/share/kami-qq-official/matplotlib
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/ubuntu/.local/share/kami-qq-official/venv/bin/python official_qq/run.py
+Restart=on-failure
+RestartSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/.local/share/kami-qq-official
+MemoryMax=384M
+
+[Install]
+WantedBy=multi-user.target

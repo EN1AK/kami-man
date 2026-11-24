@@ -194,9 +194,11 @@ class ArchiveOffloader:
             for match_id, files in plan["matches"].items():
                 for entry in files:
                     path = self.store.directory(match_id) / entry["name"]
-                    if path.exists() and digest(path) == entry["sha256"]:
-                        removed += self.store.allocated_bytes(path)
-                        path.unlink()
+                    with self.store.usage.locked():
+                        if path.exists() and digest(path) == entry["sha256"]:
+                            with self.store.usage.changing(path):
+                                removed += self.store.allocated_bytes(path)
+                                path.unlink()
             self.plan_path.unlink(missing_ok=True)
             (self.stage / (batch_id + ".tar")).unlink(missing_ok=True)
             return removed

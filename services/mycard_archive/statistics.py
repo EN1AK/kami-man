@@ -122,7 +122,7 @@ def card_usage(store,players,now=None,names=None):
                 side_observed=side_observed,oldest=min(times) if times else None,newest=max(times) if times else None,
                 total_cards=len(rows),extra_total_cards=len(extra_rows),rows=rows[:100],extra_rows=extra_rows[:100])
 
-CARD_ALIASES_FILE=Path(__file__).resolve().parents[2]/"data"/"ygo_card_aliases.json"
+from .preview_ids import CARD_ALIASES_FILE
 
 
 def card_db_path():
