@@ -1,0 +1,158 @@
+--- a/data_utils.py
++++ b/data_utils.py
+@@ -11,7 +11,7 @@
+ 
+ def load_system_category_tags() -> dict[int, str]:
+     data_dir = os.environ.get("DATA_DIR")
+-    conf_path = Path(data_dir) / "strings.conf" if data_dir else Path(__file__).parent / "asset" / "strings.conf"
++    conf_path = Path(os.environ["CARD_STRINGS_PATH"]) if os.environ.get("CARD_STRINGS_PATH") else Path(data_dir) / "strings.conf" if data_dir else Path(__file__).parent / "asset" / "strings.conf"
+     if data_dir and not conf_path.exists():
+         conf_path = Path(__file__).parent / "asset" / "strings.conf"
+     if not conf_path.exists():
+@@ -48,7 +48,7 @@
+ 
+ def parse_setcode(setcode, name_map):
+     # 1. 转成大写十六进制字符串
+-    hex_str = f"{setcode:X}"
++    hex_str = f"{int(setcode) & ((1 << 64) - 1):X}"
+     # 2. 左侧补零，使长度成为 4 的倍数
+     pad_len = (-len(hex_str)) % 4
+     if pad_len:
+@@ -82,7 +82,19 @@
+       · 在 PyInstaller 打包后的环境中，从 sys._MEIPASS 找到临时目录里的 cards.cdb
+       · 否则从当前脚本同级目录下加载 cards.cdb
+     """
++    # Refresh labels together with the shared catalog.
++    strings = os.environ.get("CARD_STRINGS_PATH")
++    if strings:
++        current_names = {}
++        for line in Path(strings).read_text(encoding="utf-8").splitlines():
++            parts = line.split(maxsplit=2)
++            if len(parts) == 3 and parts[0] == "!setname":
++                current_names[int(parts[1], 16)] = parts[2].split("\t", 1)[0].split("|", 1)[0].strip()
++        SETNAME_MAP.update(current_names)
+     # 1. 自动定位数据库文件
++    shared_path = os.environ.get("CARD_DB_PATH") if path is None else None
++    if shared_path:
++        path = shared_path
+     if path is None:
+         data_dir = os.environ.get("DATA_DIR")
+         if data_dir:
+@@ -105,27 +117,36 @@
+ 
+     # 2. 连接并读取表
+     conn = sqlite3.connect(str(db_file))
++    columns = {row[1] for row in conn.execute("PRAGMA table_info(datas)")}
++    hot_column = "hot" if "hot" in columns else "0 AS hot"
+     datas = pd.read_sql_query(
+-        "SELECT id, type, atk, def, level, race, attribute, category, hot, setcode FROM datas",
++        f"SELECT id, type, atk, def, level, race, attribute, category, {hot_column}, setcode FROM datas",
+         conn, index_col="id"
+     )
+     texts = pd.read_sql_query(
+         "SELECT id, name FROM texts",
+         conn, index_col="id"
+     )
+-    try:
++    metadata_path = os.environ.get("CARD_METADATA_DB") if shared_path else None
++    if metadata_path:
++        conn.close()
++        conn = sqlite3.connect(Path(metadata_path).resolve().as_uri() + "?mode=ro", uri=True)
++        hot = dict(conn.execute("SELECT id, hot FROM datas"))
++        datas["hot"] = datas.index.map(lambda code: hot.get(code, 0))
++    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
++    if "card_meta" in tables:
+         meta = pd.read_sql_query(
+             "SELECT id, first_jp_release, jp_packs FROM card_meta",
+             conn, index_col="id"
+         )
+-    except sqlite3.OperationalError:
++    else:
+         meta = pd.DataFrame(columns=["first_jp_release", "jp_packs"])
+-    try:
++    if "card_names" in tables:
+         aliases = pd.read_sql_query(
+             "SELECT id, name FROM card_names",
+             conn
+         )
+-    except sqlite3.OperationalError:
++    else:
+         aliases = pd.DataFrame(columns=["id", "name"])
+     conn.close()
+ 
+--- a/guess_card_game.py
++++ b/guess_card_game.py
+@@ -4,6 +4,8 @@
+ import time
+ import uuid
+ import json
++import threading
++from pathlib import Path
+ from datetime import datetime, timezone, timedelta
+ from flask import Flask, render_template, request, redirect, url_for, session, jsonify, Response
+ from flask_session import Session
+@@ -19,6 +21,42 @@
+ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
+ 
+ db = load_card_database()
++_catalog_lock = threading.Lock()
++_catalog_stamp = None
++_catalog_check_after = 0.0
++
++
++def _shared_catalog_stamp():
++    paths = [os.environ.get("CARD_DB_PATH"), os.environ.get("CARD_METADATA_DB"), os.environ.get("CARD_STRINGS_PATH")]
++    return tuple((str(path), (stat := Path(path).stat()).st_mtime_ns, stat.st_size, stat.st_ino)
++                 for path in paths if path)
++
++
++if os.environ.get("CARD_DB_PATH"):
++    _catalog_stamp = _shared_catalog_stamp()
++
++
++@app.before_request
++def refresh_shared_catalog():
++    global db, _catalog_stamp, _catalog_check_after
++    if not os.environ.get("CARD_DB_PATH") or time.monotonic() < _catalog_check_after:
++        return
++    if not _catalog_lock.acquire(blocking=False):
++        return
++    try:
++        _catalog_check_after = time.monotonic() + 10
++        stamp = _shared_catalog_stamp()
++        if stamp != _catalog_stamp:
++            refreshed = load_card_database()
++            db = refreshed
++            _catalog_stamp = stamp
++            app.logger.info("Shared card catalog reloaded: %s unique card names", len(db))
++    except Exception:
++        app.logger.exception("Shared catalog reload failed; keeping the previous catalog")
++    finally:
++        _catalog_lock.release()
++
++
+ rooms = {}
+ SITE_URL = os.environ.get("SITE_URL", "https://www.ygoccb.site").rstrip("/")
+ FEEDBACK_PATH = os.environ.get("FEEDBACK_PATH", os.path.join(os.environ.get("DATA_DIR", os.path.join(base_path, "asset")), "feedback.jsonl"))
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -11,6 +11,9 @@
+     environment:
+       PORT: "7860"
+       DATA_DIR: "/app/asset"
++      CARD_DB_PATH: "/app/shared-cards/cards.cdb"
++      CARD_METADATA_DB: "/app/asset/cards.cdb"
++      CARD_STRINGS_PATH: "/app/shared-cards/strings.conf"
+       IMAGE_DIR: "/app/static/card"
+       SECRET_KEY: "${SECRET_KEY:-change-me-in-production}"
+       REDIS_URL: "redis://redis:6379/0"
+@@ -19,6 +22,9 @@
+       WEB_TIMEOUT: "120"
+     volumes:
+       - ./asset:/app/asset
++      - /home/ubuntu/qqbot/shared-ygo:/app/shared-cards:ro
++      - ./data_utils.py:/app/data_utils.py:ro
++      - ./guess_card_game.py:/app/guess_card_game.py:ro
+       - ./static/card:/app/static/card
+     healthcheck:
+       test:

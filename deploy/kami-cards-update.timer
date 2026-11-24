@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for a new Chinese card catalog hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+Persistent=true
+Unit=kami-cards-update.service
+
+[Install]
+WantedBy=timers.target

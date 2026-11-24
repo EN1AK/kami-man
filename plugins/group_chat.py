@@ -6,7 +6,7 @@ from nonebot import on_message, get_driver, logger
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, MessageEvent, MessageSegment
 from nonebot.rule import Rule
 from services.group_chat_client import service, store, meme_library
-from services.group_chat_store import ALLOWED_GROUPS, DAILY_LIMIT
+from services.group_chat_store import ALLOWED_GROUPS, DAILY_LIMIT, PROBABILITY
 from services.group_style import update_style
 from services.group_learning import update_learning, budget_status
 from services.group_memes import MemeLibrary
@@ -46,7 +46,7 @@ async def handle_control(bot: Bot, event: GroupMessageEvent):
                 f"今天学习尝试 {state['attempts']}/3 次，完成 {state['successes']}/2 批。")
         try:
             memes = await asyncio.to_thread(MemeLibrary(meme_library.root,store.path).status,event.group_id)
-            text += f"\n表情库 {memes['images']} 张可用图片、{memes['categories']} 类；今日发图尝试 {memes['attempts']}/{memes['limit']} 次。"
+            text += f"\n表情库 {memes['images']} 张可用图片、{memes['categories']} 类；今日选图 {memes['attempts']} 次；不设次数、冷却或去重限制。"
         except Exception:
             text += "\n暂时无法读取表情库状态。"
         try:
@@ -63,6 +63,9 @@ async def handle_control(bot: Bot, event: GroupMessageEvent):
         return
     if kind == "群聊风格":
         profile = await asyncio.to_thread(store.profile, event.group_id)
+        if not profile.get("enabled", True):
+            await bot.send(event, "群聊风格总结已关闭，不再生成或用于回复；表达学习和上下文仍可使用。")
+            return
         if profile["summary"]:
             text = "当前群聊风格：\n" + profile["summary"]
             text += f"\n\n本次参考 {profile['source_count']} 条消息的统计；新增 {profile['new_count']} 条。"
@@ -84,7 +87,7 @@ async def handle_control(bot: Bot, event: GroupMessageEvent):
     text = (f"群聊采集：{'开启' if state['collect'] else '关闭'}；随机聊天：{'开启' if state['chat'] else '关闭'}。\n"
             f"已保存 {state['count']} 条文字样本（保留 30 天）。\n"
             f"今天调用 {state['attempts']}/{DAILY_LIMIT} 次，已接话 {state['sent']} 次。\n"
-            "触发概率 3%，至少间隔 5 分钟。")
+            f"抽中概率 {PROBABILITY:.0%}，无固定尝试间隔。")
     text += "\n表达学习与费用统计：@神人 群聊学习 状态。"
     if kind == "群聊采集" and action == "开启" and not state["chat"]:
         text += "\n恢复接话请发送：@神人 随机聊天 开启。"
@@ -93,6 +96,15 @@ async def handle_control(bot: Bot, event: GroupMessageEvent):
 
 async def is_target(event: MessageEvent):
     return isinstance(event, GroupMessageEvent) and event.group_id in ALLOWED_GROUPS
+
+
+# Capture public context before mention/command matchers can stop propagation.
+context_observer = on_message(rule=Rule(is_target),priority=0,block=False)
+
+
+@context_observer.handle()
+async def handle_context(bot:Bot,event:GroupMessageEvent):
+    await service.capture_context(bot,event)
 
 
 observer = on_message(rule=Rule(is_target), priority=99, block=False)

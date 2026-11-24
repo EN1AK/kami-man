@@ -31,37 +31,28 @@ def library(tmp_path,count=8,draw=lambda:0):
     return MemeLibrary(root,tmp_path/'group.db',draw=draw,choose=lambda paths:paths[0])
 
 
-def test_local_selection_base64_and_seven_day_dedup(tmp_path):
-    lib=library(tmp_path,count=1)
+def test_local_selection_repeats_without_cooldown_or_daily_cap(tmp_path):
+    lib=library(tmp_path,count=1,draw=lambda:1)
     assert lib.categories(GROUP,NOW)==[dict(category='happy',description='开心')]
-    image=lib.reserve(GROUP,'happy',NOW)
-    assert base64.b64decode(image.image.split('://',1)[1])==png()
-    assert lib.status(GROUP,NOW)['attempts']==1
-    assert lib.reserve(GROUP,'happy',NOW+1801) is None
-    assert MemeLibrary(lib.root,lib.db_path,draw=lambda:0).reserve(GROUP,'happy',NOW+86400) is None
-    assert lib.reserve(GROUP,'happy',NOW+8*86400)
-
-
-def test_atomic_cooldown_daily_cap_and_restart(tmp_path):
-    lib=library(tmp_path)
     with ThreadPoolExecutor(max_workers=4) as pool:
         selected=list(pool.map(lambda _:lib.reserve(GROUP,'happy',NOW),range(4)))
-    assert sum(x is not None for x in selected)==1
-    restarted=MemeLibrary(lib.root,lib.db_path,draw=lambda:0,choose=lambda paths:paths[0])
-    assert not restarted.categories(GROUP,NOW+1)
-    for i in range(1,5):assert restarted.reserve(GROUP,'happy',NOW+i*1800)
-    assert not restarted.reserve(GROUP,'happy',NOW+5*1800)
-    assert restarted.status(GROUP,NOW+5*1800)['attempts']==5
-    assert restarted.reserve(GROUP,'happy',NOW+86400)
+    assert all(item is not None for item in selected)
+    restarted=MemeLibrary(lib.root,lib.db_path,draw=lambda:1)
+    for _ in range(8):
+        image=restarted.reserve(GROUP,'happy',NOW)
+        assert base64.b64decode(image.image.split('://',1)[1])==png()
+    assert restarted.categories(GROUP,NOW)
+    assert restarted.status(GROUP,NOW)['attempts']==12
+    assert restarted.status(GROUP,NOW)['limit'] is None
 
 
-def test_probability_group_and_category_allowlist(tmp_path):
+def test_group_and_category_allowlist_still_apply(tmp_path):
     lib=library(tmp_path,draw=lambda:1)
-    assert not lib.reserve(GROUP,'happy',NOW)
+    assert lib.reserve(GROUP,'happy',NOW)
     assert not lib.reserve(123,'happy',NOW)
     assert not lib.reserve(GROUP,'../happy',NOW)
     assert not lib.reserve(GROUP,'unknown',NOW)
-    assert category_key('\u200c_kg')=='_kg'
+    assert category_key(chr(0x200c)+'_kg')=='_kg'
 
 
 def test_corrupt_oversized_and_symlink_assets_are_not_sent(tmp_path):
@@ -96,6 +87,7 @@ def test_one_generation_sends_image_with_optional_text_and_never_learns_it(tmp_p
     asyncio.run(chat.GroupChatService(store,draw=lambda:0,meme_library=lib).observe(bot,event(mid=9)))
     assert generate.await_count==1 and len(bot.sent)==1
     assert [seg.type for seg in bot.sent[0]]==(['reply','text','image'] if text else ['reply','image'])
+    assert bot.sent[0][0].data['id']=='9'
     assert store.status(GROUP)['count']==4 and store.status(GROUP)['sent']==1
     with closing(store.connect()) as db:
         assert db.execute('select count(*) from group_samples where text=?',(text,)).fetchone()[0]==0
@@ -110,6 +102,7 @@ def test_image_cooldown_or_failure_falls_back_to_text(tmp_path,monkeypatch):
     bot=FakeBot()
     asyncio.run(chat.GroupChatService(store,draw=lambda:0,meme_library=lib).observe(bot,event(mid=9)))
     assert len(bot.sent)==1 and [seg.type for seg in bot.sent[0]]==['reply','text']
+    assert bot.sent[0][0].data['id']=='9'
 
 
 @pytest.mark.parametrize('action',['clear','collect_off','chat_off','new_message'])

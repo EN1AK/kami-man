@@ -13,6 +13,8 @@ DEFAULT_AGENT_STRUCTURED_MAX_BLOCK_CHARS = 1800
 
 AGENT_TIMEOUT = "RAG Agent 请求超时，请稍后再试。"
 AGENT_HTTP_ERROR = "RAG Agent 服务请求失败，请稍后再试。"
+GROUP_BUDGET_ERROR = "聊天模型费用预算已用尽，请联系管理员查看日/月预算；这次请求不扣次数。"
+AGENT_RATE_LIMIT = "模型请求过于频繁或服务繁忙，请稍后再试；这次请求不扣次数。"
 AGENT_NETWORK_ERROR = "无法连接 RAG Agent 服务，请确认服务已启动。"
 AGENT_INVALID_RESPONSE = "RAG Agent 服务返回了无效响应。"
 
@@ -193,6 +195,14 @@ def map_agent_error(exc: Exception) -> str:
     if isinstance(exc, httpx.TimeoutException):
         return AGENT_TIMEOUT
     if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code == 429:
+            try:
+                data = exc.response.json()
+            except (ValueError, UnicodeError):
+                data = {}
+            if isinstance(data,dict) and data.get("error") == "Group model budget exhausted":
+                return GROUP_BUDGET_ERROR
+            return AGENT_RATE_LIMIT
         return AGENT_HTTP_ERROR
     if isinstance(exc, httpx.RequestError):
         return AGENT_NETWORK_ERROR

@@ -136,9 +136,20 @@ def build_rift_rag_nodes(
         rule_lines = [f"规则 {source.rule_id}"]
         if source.topic and source.topic.strip():
             rule_lines.append(f"主题 {source.topic}")
+        if source.quote:
+            rule_lines.append(source.quote)
         nodes.append(make_forward_node("\n".join(rule_lines), **identity))
 
     if response.answer:
-        nodes.append(make_forward_node(response.answer, **identity))
+        answer = response.answer
+        if response.timings_ms and response.usage:
+            t, u = response.timings_ms, response.usage
+            answer += (f"\n\n输入 {u['input_tokens']:,} · 输出 {u['output_tokens']:,} · "
+                       f"合计 {u['total_tokens']:,} tokens\n"
+                       f"共 {t['total']/1000:.1f} 秒 · 检索 {t['retrieval']/1000:.1f} 秒 · "
+                       f"模型 {t['model']/1000:.1f} 秒")
+            if response.estimated_cost_usd is not None:
+                answer += f" · 估算 ${response.estimated_cost_usd:.4f}"
+        nodes.append(make_forward_node(answer, **identity))
 
     return nodes

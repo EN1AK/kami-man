@@ -47,6 +47,7 @@ class RiftRagSettings:
 class RagSource:
     rule_id: str
     topic: str
+    quote: str = ""
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,9 @@ class RiftRagResponse:
     unresolved_mentions: list[str] = field(default_factory=list)
     ambiguous_mentions: list[dict[str, Any]] = field(default_factory=list)
     exhausted: bool = False
+    usage: dict = field(default_factory=dict)
+    timings_ms: dict = field(default_factory=dict)
+    estimated_cost_usd: float | None = None
 
 
 def _get_env_value(*names: str) -> str | None:
@@ -151,6 +155,9 @@ def parse_rift_rag_response(data: dict[str, Any]) -> RiftRagResponse:
             _coverage_value(data, "ambiguous_mentions")
         ),
         exhausted=_parse_exhausted(data.get("exhausted")),
+        usage=data.get("usage") or {},
+        timings_ms=data.get("timings_ms") or {},
+        estimated_cost_usd=data.get("estimated_cost_usd"),
     )
 
 
@@ -178,7 +185,7 @@ def _parse_sources(value: Any) -> list[RagSource]:
             continue
         topic = item.get("topic")
         topic = topic.strip() if isinstance(topic, str) else ""
-        sources.append(RagSource(rule_id=rule_id, topic=topic))
+        sources.append(RagSource(rule_id=rule_id, topic=topic, quote=str(item.get("quote") or "")))
     return sources
 
 

@@ -1,4 +1,4 @@
-"""Local category memes with persistent admission limits; no model dependencies."""
+"""Local category memes without probability, cooldown or repetition limits."""
 import base64
 from contextlib import closing
 from dataclasses import dataclass
@@ -15,10 +15,6 @@ import unicodedata
 from services.group_chat_store import ALLOWED_GROUPS
 
 MAX_BYTES = 4*1024*1024
-DAILY_IMAGE_LIMIT = 5
-IMAGE_COOLDOWN = 1800
-IMAGE_PROBABILITY = 0.25
-REPEAT_SECONDS = 7*86400
 EXTENSIONS = {".png",".jpg",".jpeg",".webp",".gif"}
 CHINA = timezone(timedelta(hours=8))
 
@@ -109,24 +105,13 @@ class MemeLibrary:
     def day(now):
         return datetime.fromtimestamp(now,CHINA).date().isoformat()
 
-    def capacity(self, db, group, now):
-        count = db.execute("SELECT COUNT(*) FROM group_meme_history WHERE group_id=? AND day=?",(group,self.day(now))).fetchone()[0]
-        last = db.execute("SELECT MAX(created) FROM group_meme_history WHERE group_id=?",(group,)).fetchone()[0]
-        return count<DAILY_IMAGE_LIMIT and (last is None or now-last>=IMAGE_COOLDOWN)
-
     def categories(self, group, now=None):
         if not self.allowed(group):
             return []
-        now = time.time() if now is None else now
-        with closing(self.connect()) as db:
-            if not self.capacity(db,group,now):
-                return []
         return [dict(category=k,description=v[0]) for k,v in self.inventory().items()]
 
     def reserve(self, group, category, now=None):
         if not self.allowed(group) or category_key(category)!=category:
-            return None
-        if self.draw()>=IMAGE_PROBABILITY:
             return None
         now = time.time() if now is None else now
         inventory = self.inventory()
@@ -136,9 +121,6 @@ class MemeLibrary:
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM group_meme_history WHERE created<?",(now-30*86400,))
-            if not self.capacity(db,group,now):
-                return None
-            used = {r[0] for r in db.execute("SELECT digest FROM group_meme_history WHERE group_id=? AND created>=?",(group,now-REPEAT_SECONDS))}
             while paths:
                 path = self.choose(paths)
                 paths.remove(path)
@@ -152,8 +134,6 @@ class MemeLibrary:
                 if len(content)>MAX_BYTES or not image_bytes(content):
                     continue
                 digest = hashlib.sha256(content).hexdigest()
-                if digest in used:
-                    continue
                 db.execute("INSERT INTO group_meme_history(group_id,day,category,digest,created) VALUES (?,?,?,?,?)",(group,self.day(now),category,digest,now))
                 return MemeSelection(category,"base64://"+base64.b64encode(content).decode("ascii"),digest)
         return None
@@ -165,4 +145,4 @@ class MemeLibrary:
         inventory = self.inventory()
         with closing(self.connect()) as db:
             attempts = db.execute("SELECT COUNT(*) FROM group_meme_history WHERE group_id=? AND day=?",(group,self.day(now))).fetchone()[0]
-        return dict(categories=len(inventory),images=sum(len(v[1]) for v in inventory.values()),attempts=attempts,limit=DAILY_IMAGE_LIMIT)
+        return dict(categories=len(inventory),images=sum(len(v[1]) for v in inventory.values()),attempts=attempts,limit=None)

@@ -1,5 +1,6 @@
 """Persistent, sample-bounded group style summaries."""
 import asyncio
+import os
 from collections import defaultdict
 from contextlib import closing
 import statistics
@@ -16,6 +17,10 @@ from services.ygo_rag_agent_api import YgoRagAgentSettings
 INITIAL_MESSAGES = 200
 UPDATE_MESSAGES = 100
 MIN_SPEAKERS = 3
+
+
+def summary_enabled():
+    return os.getenv("GROUP_STYLE_SUMMARY_ENABLED", "1").strip().lower() not in {"0", "false", "off"}
 
 
 class GroupStyleStore(GroupChatStore):
@@ -47,7 +52,7 @@ class GroupStyleStore(GroupChatStore):
             row = db.execute("SELECT summary,source_seq,source_count,updated FROM group_style_profiles WHERE group_id=?", (group,)).fetchone()
             summary, seq, count, updated = row or ("", 0, 0, 0)
             new_count = db.execute("SELECT COUNT(*) FROM group_samples WHERE group_id=? AND seq>?", (group,seq)).fetchone()[0]
-            return dict(summary=summary, source_seq=seq, source_count=count, updated=updated, new_count=new_count)
+            return dict(summary=summary if summary_enabled() else "", source_seq=seq, source_count=count, updated=updated, new_count=new_count, enabled=summary_enabled())
 
     def configure(self, group, action, now=None):
         # Invalidate outstanding summary jobs before a clear/collection stop commits.
@@ -65,6 +70,8 @@ class GroupStyleStore(GroupChatStore):
         return super().configure(group, action, now)
 
     def reserve_summary(self, group, now=None):
+        if not summary_enabled():
+            return None
         if group not in ALLOWED_GROUPS:
             return None
         now = time.time() if now is None else now
@@ -112,6 +119,8 @@ class GroupStyleStore(GroupChatStore):
                         previous_summary=previous, style_samples=samples, statistics=stats)
 
     def finish_summary(self, job, summary, now=None):
+        if not summary_enabled():
+            return False
         group = job["group_id"]
         if group not in ALLOWED_GROUPS or not isinstance(summary,str) or not 1 <= len(summary) <= 600:
             return False

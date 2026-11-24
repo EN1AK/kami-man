@@ -6,10 +6,9 @@ from pathlib import Path
 import sqlite3
 import time
 
-ALLOWED_GROUPS = frozenset({819151070})
+ALLOWED_GROUPS = frozenset({819151070, 875615212})
 PROBABILITY = 0.03
-COOLDOWN_SECONDS = 300
-DAILY_LIMIT = 20
+DAILY_LIMIT = 100
 RETENTION_SECONDS = 30 * 86400
 MAX_MESSAGES = 10000
 CHINA_TZ = timezone(timedelta(hours=8))
@@ -102,8 +101,8 @@ class GroupChatStore:
         day = self.day(now)
         with closing(self.connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            collect, chat, last = db.execute("SELECT collect,chat,last_attempt FROM group_settings WHERE group_id=?", (group,)).fetchone()
-            if not collect or not chat or now-last < COOLDOWN_SECONDS:
+            collect, chat = db.execute("SELECT collect,chat FROM group_settings WHERE group_id=?", (group,)).fetchone()
+            if not collect or not chat:
                 return None
             db.execute("INSERT OR IGNORE INTO group_chat_usage(group_id,day) VALUES (?,?)", (group,day))
             changed = db.execute("UPDATE group_chat_usage SET attempts=attempts+1 WHERE group_id=? AND day=? AND attempts<?", (group,day,DAILY_LIMIT)).rowcount

@@ -2,6 +2,7 @@
 import asyncio
 import sqlite3
 import random
+import re
 from pathlib import Path
 from nonebot import logger
 from services.agent_usage import DAILY_LIMIT, usage_store, is_exempt
@@ -14,9 +15,49 @@ from services.card_translation import CardImageError, card_images, translate_car
 from services.mention_state import MentionState
 from services.persona_reply_segments import split_persona_reply
 from services.mention_chat_client import resolve_route,request_casual,clear_sessions,style_context,mention_memes,private_memes
+from services.mention_chat_client import conversation_context,record_casual_context
 
 route_state = MentionState(Path(__file__).resolve().parents[1]/"data/mention_routes.db")
 CLEAR_COMMANDS = {"清空对话","重置对话","忘记上下文"}
+
+
+MEME_REQUEST = re.compile(
+    r"(?:请\s*)?(?:给我\s*)?(?:(?:发|来)(?:给我)?\s*(?:一?[个张]|个)?\s*(?P<kind>[\w]{1,16}?的)?\s*表情包"
+    r"|表情包(?:\s+(?P<category>[\w]{1,16}))?)(?:吧|看看)?[。！!]*"
+)
+MEME_ALIASES = {
+    "开心": "happy", "高兴": "happy", "难过": "sad", "伤心": "sad",
+    "生气": "angry", "疑惑": "confused", "困惑": "confused",
+    "无语": "sigh", "震惊": "surprised", "可爱": "meow", "搞笑": "_laugh",
+}
+
+
+async def _send_requested_meme(bot, event, match):
+    group = getattr(event, "group_id", None)
+    library = private_memes if group is None else mention_memes
+    target = event.user_id if group is None else group
+    term = match["category"] or (match["kind"] or "").removesuffix("的")
+    term = term.casefold()
+    category = MEME_ALIASES.get(term, term)
+    try:
+        available = await asyncio.to_thread(library.categories, target)
+        names = [item["category"] for item in available]
+        if not names:
+            await bot.send(event, "表情包库暂时没有可用图片。")
+            return
+        if category and category not in names:
+            await bot.send(event, "表情库没有这个分类。可以试试「发个表情包」或「发个开心的表情包」。")
+            return
+        candidates = [category] if category else random.sample(names, len(names))
+        for name in candidates:
+            image = await asyncio.to_thread(library.reserve, target, name)
+            if image:
+                result = await bot.send(event, MessageSegment.image(image.image))
+                await record_casual_context(bot, event, "[机器人发送了表情，未读取图片内容]", result)
+                return
+    except Exception as exc:
+        logger.warning("Requested meme unavailable ({})", type(exc).__name__)
+    await bot.send(event, "这次没能发出表情包，稍后再试。")
 
 def session_key(bot,event):
     group=getattr(event,"group_id",None)
@@ -50,7 +91,8 @@ async def _casual_reply(bot,event,key,question):
         categories = await asyncio.to_thread(library.categories,target)
     except Exception:
         categories = []
-    reply = await request_casual(group,key,question,profile,expressions,categories)
+    conversation,current_message_id=await conversation_context(bot,event)
+    reply = await request_casual(group,key,question,profile,expressions,categories,conversation,current_message_id)
     if reply is None:
         raise ValueError("Unexpected persona escalation")
     image = None
@@ -69,9 +111,27 @@ async def _casual_reply(bot,event,key,question):
             message = Message(MessageSegment.text(part)) if part else Message()
             if image and index==len(parts)-1:
                 message += MessageSegment.image(image.image)
-            await bot.send(event,message)
+            result=await bot.send(event,message)
+            await record_casual_context(bot,event,part or "[机器人发送了表情，未读取图片内容]",result)
             await asyncio.to_thread(route_state.record,key,"casual",part)
+        await _send_persona_sources(bot,event,getattr(reply,"sources",()))
     return True
+
+
+async def _send_persona_sources(bot,event,sources):
+    if not sources:return
+    nodes=[make_forward_node(int(bot.self_id),"神人",Message(MessageSegment.text(
+        "本次回答参考来源\n以下链接来自实际查询结果，可展开查看。")))]
+    nodes += [make_forward_node(int(bot.self_id),"神人",Message(MessageSegment.text(
+        f"来源 {index}\n{item['url']}"))) for index,item in enumerate(sources,1)]
+    try:
+        if isinstance(event,PrivateMessageEvent):
+            await bot.call_api("send_private_forward_msg",user_id=event.user_id,messages=nodes)
+        else:
+            await bot.call_api("send_group_forward_msg",group_id=event.group_id,messages=nodes)
+    except Exception as exc:
+        # Do not turn a failed source card into a series of ordinary link messages.
+        logger.warning("Persona source record unavailable ({})",type(exc).__name__)
 
 
 async def _handle_question(bot,event,question):
@@ -113,6 +173,10 @@ async def _handle_question(bot,event,question):
             await bot.send(event,"已清空你的闲聊和专业问答上下文。")
         except Exception as exc:
             await bot.send(event,map_agent_error(exc))
+        return
+    meme_request = MEME_REQUEST.fullmatch(question.strip()) if not images else None
+    if meme_request:
+        await _send_requested_meme(bot, event, meme_request)
         return
     ticket = None
     try:

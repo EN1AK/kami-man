@@ -8,7 +8,7 @@ nonebot.init()
 import pytest
 from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from services import group_chat_client as client
-from services.group_chat_store import DAILY_LIMIT, COOLDOWN_SECONDS, RETENTION_SECONDS
+from services.group_chat_store import DAILY_LIMIT, RETENTION_SECONDS
 from services.group_learning import GroupLearningStore as GroupChatStore
 from test_rift_rag_qa import FakeBot, make_group_event
 
@@ -51,11 +51,10 @@ def test_atomic_limits_survive_restart_and_day_rollover(tmp_path):
     store = GroupChatStore(tmp_path/"samples.db")
     with ThreadPoolExecutor(max_workers=4) as pool:
         tickets = list(pool.map(lambda _: store.reserve(GROUP, NOW), range(4)))
-    assert sum(ticket is not None for ticket in tickets) == 1
-    assert GroupChatStore(store.path).reserve(GROUP, NOW+1) is None
-    for index in range(1, DAILY_LIMIT):
-        assert store.reserve(GROUP, NOW+index*COOLDOWN_SECONDS) is not None
-    assert store.reserve(GROUP, NOW+DAILY_LIMIT*COOLDOWN_SECONDS) is None
+    assert all(ticket is not None for ticket in tickets)
+    for _ in range(DAILY_LIMIT - len(tickets)):
+        assert store.reserve(GROUP, NOW) is not None
+    assert GroupChatStore(store.path).reserve(GROUP, NOW) is None
     assert store.reserve(GROUP, NOW+86400) is not None
 
 
@@ -74,7 +73,7 @@ def test_retention_limit_and_switches(tmp_path, monkeypatch):
     assert store.status(GROUP, NOW)["count"] == 0
 
 
-def test_proactive_reply_uses_only_group_samples_and_is_throttled(tmp_path, monkeypatch):
+def test_proactive_reply_can_retry_immediately_but_skips_repeated_reply(tmp_path, monkeypatch):
     store = GroupChatStore(tmp_path/"samples.db")
     service = client.GroupChatService(store, draw=lambda: 0)
     generate = AsyncMock(return_value="这下真成抽卡游戏了")
@@ -84,14 +83,15 @@ def test_proactive_reply_uses_only_group_samples_and_is_throttled(tmp_path, monk
         for index in range(5):
             await service.observe(bot, event(mid=index))
     asyncio.run(run())
-    assert generate.await_count == 1 and len(bot.sent) == 1
+    assert generate.await_count == 2 and len(bot.sent) == 1
     assert store.status(GROUP)["count"] == 5 and store.status(GROUP)["sent"] == 1
-    assert generate.call_args.args[0] == GROUP
-    target = next(row for row in generate.call_args.args[1] if row["id"] == generate.call_args.args[-1])
+    first = generate.call_args_list[0].args
+    assert first[0] == GROUP
+    target = next(row for row in first[1] if row["id"] == first[-1])
     assert target["text"] == "这牌也太离谱了"
     assert bot.sent[0][0].type == "reply"
     assert bot.sent[0][0].data["id"] == "3"
-    assert all(item["speaker"].startswith("成员") for item in generate.call_args.args[1])
+    assert all(item["speaker"].startswith("成员") for item in first[1])
 
 
 def test_paused_inflight_result_is_not_sent(tmp_path, monkeypatch):

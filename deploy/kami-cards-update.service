@@ -1,0 +1,23 @@
+[Unit]
+Description=Update the shared YGO Chinese card catalog
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+Environment=PYTHONUTF8=1
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=/usr/bin/python3 /home/ubuntu/qqbot/kami-man/deploy/update_cards_db.py --destination /home/ubuntu/qqbot/shared-ygo/cards.cdb --state /home/ubuntu/qqbot/ygo-rag/data/cards-update/state.json --backup /home/ubuntu/qqbot/ygo-rag-data-backups/cards-auto-update/previous.cdb --strings /home/ubuntu/qqbot/shared-ygo/strings.conf
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=128M
+TimeoutStartSec=180
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/ubuntu/qqbot/shared-ygo /home/ubuntu/qqbot/ygo-rag/data/cards-update /home/ubuntu/qqbot/ygo-rag-data-backups
+

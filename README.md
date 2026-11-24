@@ -418,3 +418,8 @@ Bot新增 data/mention_routes.db 仅存会话范围、回复SHA256和分支标�
 ### 私聊爱弥斯人格（2026-10-20）
 
 管理员私聊改用独立的爱弥斯/小爱原文：ygo-rag/personas/wuwa-aemeath/persona.txt；旁边保存source.docx和provenance.json。原文来自shirachino/astrbot-persona-prompts固定版本869d6793b93a756a410f00da44852f8b774e48f1的wuwa-aemeath/小爱人格提示词.docx，提取3481字符。可通过PRIVATE_CHAT_PERSONA_FILE指定私聊文件。群聊保持用户定制的大肥鱼人格，专业Agent不使用人格。小爱使用新私聊历史后缀:persona:aemeath，不读旧:persona历史；清空对话同时清除新旧私聊历史。512项后端测试通过，真实API确认小爱称呼。详见kami-man/deploy/private-aemeath-persona-2026-10-20.md。
+
+
+### 前排分数与功能用法知识（2026-10-20）
+
+前排卡组信息现在显示名次、玩家名、官方pt分数（最多两位小数）、卡组名、卡组更新时间及链接。未收录玩家仍显示分数，缺失分数显示未知；归档编号、首次观察、数量等诊断信息从该列表隐藏。人格已加入真实指令知识与权限说明；询问“怎么看前排卡组”等用法直接回答“前排卡组信息”，普通成员可直接发送，不依赖模型猜命令。普通功能询问由人格参考同一知识清单回答，专业Agent不变。验证879项通过。详见deploy/top-deck-scores-and-capabilities-2026-10-20.md。

@@ -53,6 +53,9 @@ class GroupLearningStore(GroupStyleStore):
                 id INTEGER PRIMARY KEY,group_id INTEGER NOT NULL,text TEXT NOT NULL,created REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS group_sample_clock (
                 id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS group_member_names (
+                group_id INTEGER NOT NULL,speaker TEXT NOT NULL,name TEXT NOT NULL,updated REAL NOT NULL,
+                PRIMARY KEY(group_id,speaker));
             CREATE TABLE IF NOT EXISTS group_conversation (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,group_id INTEGER NOT NULL,
                 message_id TEXT NOT NULL,speaker TEXT NOT NULL,role TEXT NOT NULL,
@@ -93,6 +96,7 @@ class GroupLearningStore(GroupStyleStore):
             (SELECT id FROM group_expressions WHERE group_id=? ORDER BY updated DESC,id DESC LIMIT 300)""",(group,group))
         db.execute("DELETE FROM group_expression_evidence WHERE expression_id NOT IN (SELECT id FROM group_expressions)")
         db.execute("DELETE FROM group_own_replies WHERE created<?",(now-86400,))
+        db.execute("DELETE FROM group_member_names WHERE group_id=? AND updated<?",(group,now-RETENTION_SECONDS))
         db.execute("DELETE FROM group_conversation WHERE created<?",(now-1800,))
         db.execute("""DELETE FROM group_conversation WHERE group_id=? AND seq NOT IN
             (SELECT seq FROM group_conversation WHERE group_id=? ORDER BY seq DESC LIMIT 200)""",(group,group))
@@ -112,6 +116,7 @@ class GroupLearningStore(GroupStyleStore):
             else:
                 db.execute("UPDATE group_settings SET collect=0,chat=0 WHERE group_id=?",(group,))
                 db.execute("DELETE FROM group_conversation WHERE group_id=?",(group,))
+                db.execute("DELETE FROM group_member_names WHERE group_id=?",(group,))
                 db.execute("UPDATE group_style_runs SET token='',lease_until=0 WHERE group_id=?",(group,))
                 db.execute("UPDATE group_learning_runs SET token='',lease_until=0 WHERE group_id=?",(group,))
             if action == "clear":

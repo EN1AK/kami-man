@@ -97,3 +97,14 @@ def test_parse_agent_response_rejects_payload_without_answer_or_blocks():
 )
 def test_map_agent_error_returns_user_facing_messages(exc, message):
     assert map_agent_error(exc) == message
+
+
+@pytest.mark.parametrize('payload,expected',[
+    ({'error':'Group model budget exhausted'},'聊天模型费用预算已用尽'),
+    ({'error':'upstream rate limit'},'模型请求过于频繁'),
+    ([], '模型请求过于频繁'),
+])
+def test_budget_and_rate_limit_are_not_generic_rag_failures(payload,expected):
+    response=httpx.Response(429,json=payload,request=httpx.Request('POST','http://localhost/api/mention-chat'))
+    error=httpx.HTTPStatusError('limited',request=response.request,response=response)
+    assert expected in map_agent_error(error)

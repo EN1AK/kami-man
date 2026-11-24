@@ -1,0 +1,94 @@
+--- a/rag_agent/group_chat.py
++++ b/rag_agent/group_chat.py
+@@ -11,6 +11,13 @@
+ from rag_agent.bot_capabilities import BOT_CAPABILITIES
+ 
+ ALLOWED_GROUP = 819151070
++ALLOWED_GROUPS = frozenset({ALLOWED_GROUP, 875615212})
++
++
++def is_enabled_group(group):
++    return type(group) is int and group in ALLOWED_GROUPS
++
++
+ PROMPT = """你是QQ群里的机器人“神人”。根据近期对话，偶尔自然地接一句话。
+ 在同一次判断里决定是否适合接话、哪些场景表达适用，再给出最终reply；不另写分析。
+ 若提供场景表达参考，只在当前话题和语气确实适合时自然使用，最多借鉴一条；不相关时忽略，不照搬样本里的事件。
+@@ -65,7 +72,7 @@
+ def parse_group_chat_request(payload):
+     if any(key in payload for key in ("api_key", "deepseek_api_key", "DEEPSEEK_API_KEY", "authorization")):
+         raise ValueError("Credentials belong in the server environment")
+-    if payload.get("group_id") != ALLOWED_GROUP:
++    if not is_enabled_group(payload.get("group_id")):
+         raise ValueError("Group is not enabled")
+     messages = payload.get("messages")
+     samples = payload.get("style_samples", [])
+--- a/rag_agent/group_style.py
++++ b/rag_agent/group_style.py
+@@ -5,7 +5,7 @@
+ import os
+ import re
+ 
+-from rag_agent.group_chat import ALLOWED_GROUP
++from rag_agent.group_chat import is_enabled_group
+ from rag_agent.llm import create_deepseek_chat_model
+ from rag_agent.group_budget import invoke_group_model
+ 
+@@ -28,7 +28,7 @@
+ def parse_style_request(payload):
+     if any(key in payload for key in ("api_key","deepseek_api_key","DEEPSEEK_API_KEY","authorization")):
+         raise ValueError("Credentials belong in the server environment")
+-    if payload.get("group_id") != ALLOWED_GROUP:
++    if not is_enabled_group(payload.get("group_id")):
+         raise ValueError("Group is not enabled")
+     previous = payload.get("previous_summary", "")
+     samples = payload.get("style_samples")
+--- a/rag_agent/group_learning.py
++++ b/rag_agent/group_learning.py
+@@ -4,7 +4,7 @@
+ import os
+ import re
+ 
+-from rag_agent.group_chat import ALLOWED_GROUP
++from rag_agent.group_chat import is_enabled_group
+ from rag_agent.group_budget import invoke_group_model
+ from rag_agent.llm import create_deepseek_chat_model
+ 
+@@ -25,7 +25,7 @@
+ def parse_learning_request(payload):
+     if any(key in payload for key in ("api_key","deepseek_api_key","DEEPSEEK_API_KEY","authorization")):
+         raise ValueError("Credentials belong in the server environment")
+-    if payload.get("group_id") != ALLOWED_GROUP:
++    if not is_enabled_group(payload.get("group_id")):
+         raise ValueError("Group is not enabled")
+     samples = payload.get("samples")
+     if not isinstance(samples,list) or not 3 <= len(samples) <= 8:
+--- a/rag_agent/mention_chat.py
++++ b/rag_agent/mention_chat.py
+@@ -9,7 +9,7 @@
+ 
+ from rag_agent.config import Settings
+ from rag_agent.group_budget import invoke_group_model
+-from rag_agent.group_chat import ALLOWED_GROUP,parse_group_chat_request,parse_conversation_messages
++from rag_agent.group_chat import ALLOWED_GROUP,is_enabled_group,parse_group_chat_request,parse_conversation_messages
+ from rag_agent.bot_capabilities import BOT_CAPABILITIES,capability_help
+ from rag_agent.user_profiles import load_user_profile
+ from rag_agent.group_persona import load_persona
+@@ -82,14 +82,14 @@
+     elif type(group) is not int or group<=0 or f":group:{group}:" not in key:
+         raise ValueError("Group/session scope mismatch")
+     profile,expressions = payload.get("style_profile",""),payload.get("expressions",[])
+-    if group!=ALLOWED_GROUP and (profile or expressions):
++    if not is_enabled_group(group) and (profile or expressions):
+         raise ValueError("Learned group style cannot cross groups")
+     conversation=payload.get("group_conversation",[])
+     if not isinstance(conversation,list):raise ValueError("Invalid group conversation")
+-    if conversation and group!=ALLOWED_GROUP:raise ValueError("Group conversation cannot cross groups or enter private sessions")
++    if conversation and not is_enabled_group(group):raise ValueError("Group conversation cannot cross groups or enter private sessions")
+     conversation=parse_conversation_messages(conversation) if conversation else []
+     # Reuse reference/catalog bounds only, after checking actual caller group above.
+-    refs = parse_group_chat_request(dict(group_id=ALLOWED_GROUP,messages=[dict(speaker="成员1",text=text[:500])],
++    refs = parse_group_chat_request(dict(group_id=group if is_enabled_group(group) else ALLOWED_GROUP,messages=[dict(speaker="成员1",text=text[:500])],
+         style_profile=profile,expressions=expressions,meme_categories=payload.get("meme_categories",[])))
+     return MentionRequest(key,text.strip(),refs,tuple(conversation))
+ 

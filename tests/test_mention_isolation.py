@@ -173,6 +173,65 @@ def test_http_client_payload_and_conservative_failure(monkeypatch):
     assert 'quoted_reply' not in capture[1][1]
 
 
+def test_persona_client_allows_only_verified_source_footer(monkeypatch):
+    real=httpx.AsyncClient
+    url='https://example.org/news/1234567890'
+    payload=dict(route='casual',reply='核实后的回复\n\n来源：\n'+url,sources=[dict(url=url)])
+    monkeypatch.setattr(client.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(lambda req:httpx.Response(200,json=payload)),**kw))
+    response=asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+    assert str(response)=='核实后的回复' and response.sources==({'url':url},)
+    payload['reply']='文档介绍了 API key 的获取和 token 用量。\n\n来源：\n'+url
+    assert 'token 用量' in asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+    payload['reply']='API key: sk-synthetic-secret-value\n\n来源：\n'+url
+    with pytest.raises(ValueError):asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+    payload['reply']='核实后的回复 https://fake.example/\n\n来源：\n'+url
+    with pytest.raises(ValueError):asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+    payload['reply']='手机号13800138000\n\n来源：\n'+url
+    with pytest.raises(ValueError):asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+
+
+@pytest.mark.parametrize('url',['http://127.0.0.1/','http://localhost/','https://name:secret@example.org/','file:///tmp/file'])
+def test_private_sources_rejected(url):
+    with pytest.raises(ValueError):client.validated_reply_body('回复\n\n来源：\n'+url,[dict(url=url)])
+
+
+def test_separate_sources_are_metadata_not_reply_text(monkeypatch):
+    real=httpx.AsyncClient;url='https://example.org/news'
+    payload=dict(route='casual',reply='只保留回答',sources=[dict(url=url)],sources_separate=True)
+    monkeypatch.setattr(client.httpx,'AsyncClient',lambda **kw:real(transport=httpx.MockTransport(lambda req:httpx.Response(200,json=payload)),**kw))
+    reply=asyncio.run(client.request_casual(123,'key','搜一下','',[],[]))
+    assert str(reply)=='只保留回答' and reply.sources==({'url':url},)
+
+
+def test_sources_sent_as_one_forward_card_without_plain_link_messages(monkeypatch):
+    sources=[dict(url='https://example.org/one'),dict(url='https://example.org/two')]
+    monkeypatch.setattr(unified,'request_casual',AsyncMock(return_value=GroupReply('核实后的回答',sources=sources)))
+    bot=FakeBot();event=make_group_event('搜一下')
+    asyncio.run(unified._casual_reply(bot,event,'key','搜一下'))
+    assert len(bot.sent)==1 and bot.sent[0].extract_plain_text()=='核实后的回答'
+    assert len(bot.forward_calls)==1
+    api,arguments=bot.forward_calls[0]
+    assert api=='send_group_forward_msg' and len(arguments['messages'])==3
+    assert 'https://example.org/one' in str(arguments['messages'])
+
+
+def test_source_forward_failure_does_not_dump_links(monkeypatch):
+    monkeypatch.setattr(unified,'request_casual',AsyncMock(return_value=GroupReply('回答',sources=[dict(url='https://example.org/one')])) )
+    bot=FakeBot(forward_fails=True);event=make_group_event('搜一下')
+    asyncio.run(unified._casual_reply(bot,event,'key','搜一下'))
+    assert len(bot.sent)==1 and bot.sent[0].extract_plain_text()=='回答'
+
+
+def test_private_sources_use_private_forward_api(monkeypatch):
+    monkeypatch.setattr(unified,'PrivateMessageEvent',SimpleNamespace)
+    event=SimpleNamespace(user_id=111)
+    bot=FakeBot()
+    asyncio.run(unified._send_persona_sources(bot,event,[dict(url='https://example.org/source')]))
+    api,arguments=bot.forward_calls[0]
+    assert api=='send_private_forward_msg' and arguments['user_id']==111
+    assert not bot.sent
+
+
 def test_explicit_mention_media_scope_without_changing_random_scope(tmp_path):
     lib=MemeLibrary(tmp_path/'missing',tmp_path/'memes.db')
     assert not lib.allowed(123)

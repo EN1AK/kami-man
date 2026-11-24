@@ -48,7 +48,10 @@ async def capture_group_context(bot,event,store):
         quoted_text=quoted.message.extract_plain_text().strip()
         if quoted_text and not PRIVATE.search(quoted_text) and not re.search(r"[@＠]|\[CQ:",quoted_text):
             await asyncio.to_thread(conversation.remember_legacy_quote,event.group_id,parent,quoted_text)
-    await asyncio.to_thread(conversation.record,event.group_id,event.message_id,event.user_id,text,reply_to=parent)
+    sender = getattr(event, "sender", None)
+    name = (getattr(sender, "card", None) or "").strip() or (getattr(sender, "nickname", None) or "")
+    await asyncio.to_thread(conversation.record, event.group_id, event.message_id,
+                            event.user_id, text, reply_to=parent, display_name=name)
     return text
 
 
@@ -137,7 +140,7 @@ class GroupChatService:
             context_checkpoint=await asyncio.to_thread(conversation.checkpoint,event.group_id)
             messages,target_id=await asyncio.to_thread(conversation.context_with_target,event.group_id,event.message_id,now)
             _,samples=await asyncio.to_thread(self.store.context,event.group_id,now)
-            if len(messages) < 4 or not target_id:
+            if sum(not row.get("member_history") for row in messages) < 4 or not target_id:
                 return
             day = await asyncio.to_thread(self.store.reserve, event.group_id, now)
             if day is None:
