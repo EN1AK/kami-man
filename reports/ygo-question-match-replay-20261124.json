@@ -1,0 +1,113 @@
+{
+  "host": "home",
+  "corpus": "0c3a08922f6f02c11d9ddb5cf668e56b9c9a9ac2937ba8a404cc31f99a1bf986",
+  "baseline": "previously deployed FAQ pool cache; six passes from prior run on the same host",
+  "comparison": "same frozen card selection, queries, answers and corpus; compared ordered buckets, allowed IDs, full final prompt, finalized answer and citations",
+  "matcher_differential": {
+    "records": 389,
+    "comparisons": 18,
+    "comparison": "full result, including sets and ranking, on empty and nonempty queries with zero, one and two resolved cards"
+  },
+  "sums": {
+    "old_retrieval_ms": 188165,
+    "new_retrieval_ms": 89865,
+    "old_question_ms": 132465,
+    "new_question_ms": 42107
+  },
+  "rows": [
+    {
+      "id": "Q1",
+      "pass": "baseline",
+      "cache_hit": false,
+      "old_retrieval_ms": 36469,
+      "new_retrieval_ms": 20676,
+      "old_question_ms": 20198,
+      "new_question_ms": 6488,
+      "evidence_bucket_hash": "d7542e342eea2f209aff0ade4c3738233e2c934ac879ce81ea85f347fa79243e",
+      "model_input_hash": "4505518c46faa33a51732a61403953202deb24a6320a347442ddc83cef4dbb34",
+      "cited_ids": [
+        "ygoresources-qa-15209",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "id": "Q1",
+      "pass": "supplement",
+      "cache_hit": true,
+      "old_retrieval_ms": 29780,
+      "new_retrieval_ms": 14652,
+      "old_question_ms": 20575,
+      "new_question_ms": 7956,
+      "evidence_bucket_hash": "c6ead4c389644e673f0cf47ee10032c9046652d5c0d50462979782b29ada7e90",
+      "model_input_hash": "d8801c16bb5d9e4b861aadc5adcf5bd6072c3d7761372c30862757c90adf4ea1",
+      "cited_ids": [
+        "ygoresources-qa-23530",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "id": "Q2",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_retrieval_ms": 35796,
+      "new_retrieval_ms": 14485,
+      "old_question_ms": 29466,
+      "new_question_ms": 7221,
+      "evidence_bucket_hash": "11364cbb9858dd76b68f21e7dd36eed980bcf4e693c976b7c93541af5bc05bc5",
+      "model_input_hash": "ef21fb145e33e91316c65c43682c3a3515d3f049858e866de495b81d0f7df28b",
+      "cited_ids": [
+        "card-faq-17813-1",
+        "card-faq-11235-1"
+      ]
+    },
+    {
+      "id": "Q3",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_retrieval_ms": 26411,
+      "new_retrieval_ms": 14004,
+      "old_question_ms": 21337,
+      "new_question_ms": 8047,
+      "evidence_bucket_hash": "fa14d9efa17b7c2a5da6617152d615d67a139a4860e58ba757b72b60e4eb4ce8",
+      "model_input_hash": "5391390140858d903d8c6cb2cfce826b5a8ab634061356f31fb72d7128291e87",
+      "cited_ids": [
+        "ygoresources-qa-24375",
+        "card-faq-8515-1"
+      ]
+    },
+    {
+      "id": "Q1",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_retrieval_ms": 30055,
+      "new_retrieval_ms": 13997,
+      "old_question_ms": 20208,
+      "new_question_ms": 6359,
+      "evidence_bucket_hash": "d7542e342eea2f209aff0ade4c3738233e2c934ac879ce81ea85f347fa79243e",
+      "model_input_hash": "4505518c46faa33a51732a61403953202deb24a6320a347442ddc83cef4dbb34",
+      "cited_ids": [
+        "ygoresources-qa-15209",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "id": "Q1",
+      "pass": "supplement",
+      "cache_hit": true,
+      "old_retrieval_ms": 29654,
+      "new_retrieval_ms": 12051,
+      "old_question_ms": 20681,
+      "new_question_ms": 6036,
+      "evidence_bucket_hash": "c6ead4c389644e673f0cf47ee10032c9046652d5c0d50462979782b29ada7e90",
+      "model_input_hash": "d8801c16bb5d9e4b861aadc5adcf5bd6072c3d7761372c30862757c90adf4ea1",
+      "cited_ids": [
+        "ygoresources-qa-23530",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    }
+  ]
+}

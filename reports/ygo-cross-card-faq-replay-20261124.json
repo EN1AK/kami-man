@@ -1,0 +1,129 @@
+{
+  "corpus_revision": "0c3a08922f6f02c11d9ddb5cf668e56b9c9a9ac2937ba8a404cc31f99a1bf986",
+  "backend_commit": "41c6b8966263796b6548cc6b368c6bc06b04dc70",
+  "host": "home",
+  "node": "24.19.0",
+  "timed_operation": "retrieveRagEvidence",
+  "order": "separate processes, baseline batch then candidate batch",
+  "fixture": "reference-rag-local-prep-50-ds-k31-20261123 and reference-rag-upstream-loop50-20261123-ds; frozen card resolution, planner output and existing answer text",
+  "checks": [
+    "same ordered evidence by bucket",
+    "same allowed evidence IDs and order",
+    "same final prompt bytes",
+    "same finalized answer and cited IDs"
+  ],
+  "rows": [
+    {
+      "question": "Q1",
+      "pass": "baseline",
+      "cache_hit": false,
+      "old_ms": 47361,
+      "new_ms": 36469,
+      "pool_ms": 22.13,
+      "initial_rank_ms": 1350,
+      "mechanism_rank_ms": 1029,
+      "question_rank_ms": 20198,
+      "prompt_sha256": "4505518c46faa33a51732a61403953202deb24a6320a347442ddc83cef4dbb34",
+      "ordered_evidence_sha256": "d7542e342eea2f209aff0ade4c3738233e2c934ac879ce81ea85f347fa79243e",
+      "allowed_evidence_count": 27,
+      "cited_ids": [
+        "ygoresources-qa-15209",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "question": "Q1",
+      "pass": "supplement",
+      "cache_hit": true,
+      "old_ms": 30165,
+      "new_ms": 29780,
+      "pool_ms": 0.007,
+      "initial_rank_ms": 201,
+      "mechanism_rank_ms": 993,
+      "question_rank_ms": 20575,
+      "prompt_sha256": "d8801c16bb5d9e4b861aadc5adcf5bd6072c3d7761372c30862757c90adf4ea1",
+      "ordered_evidence_sha256": "c6ead4c389644e673f0cf47ee10032c9046652d5c0d50462979782b29ada7e90",
+      "allowed_evidence_count": 28,
+      "cited_ids": [
+        "ygoresources-qa-23530",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "question": "Q2",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_ms": 30033,
+      "new_ms": 35796,
+      "pool_ms": 0.001,
+      "initial_rank_ms": 266,
+      "mechanism_rank_ms": 898,
+      "question_rank_ms": 29466,
+      "prompt_sha256": "ef21fb145e33e91316c65c43682c3a3515d3f049858e866de495b81d0f7df28b",
+      "ordered_evidence_sha256": "11364cbb9858dd76b68f21e7dd36eed980bcf4e693c976b7c93541af5bc05bc5",
+      "allowed_evidence_count": 36,
+      "cited_ids": [
+        "card-faq-17813-1",
+        "card-faq-11235-1"
+      ]
+    },
+    {
+      "question": "Q3",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_ms": 25193,
+      "new_ms": 26411,
+      "pool_ms": 0.002,
+      "initial_rank_ms": 291,
+      "mechanism_rank_ms": 563,
+      "question_rank_ms": 21337,
+      "prompt_sha256": "5391390140858d903d8c6cb2cfce826b5a8ab634061356f31fb72d7128291e87",
+      "ordered_evidence_sha256": "fa14d9efa17b7c2a5da6617152d615d67a139a4860e58ba757b72b60e4eb4ce8",
+      "allowed_evidence_count": 27,
+      "cited_ids": [
+        "ygoresources-qa-24375",
+        "card-faq-8515-1"
+      ]
+    },
+    {
+      "question": "Q1",
+      "pass": "baseline",
+      "cache_hit": true,
+      "old_ms": 39041,
+      "new_ms": 30055,
+      "pool_ms": 0.002,
+      "initial_rank_ms": 195,
+      "mechanism_rank_ms": 1044,
+      "question_rank_ms": 20208,
+      "prompt_sha256": "4505518c46faa33a51732a61403953202deb24a6320a347442ddc83cef4dbb34",
+      "ordered_evidence_sha256": "d7542e342eea2f209aff0ade4c3738233e2c934ac879ce81ea85f347fa79243e",
+      "allowed_evidence_count": 27,
+      "cited_ids": [
+        "ygoresources-qa-15209",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    },
+    {
+      "question": "Q1",
+      "pass": "supplement",
+      "cache_hit": true,
+      "old_ms": 30805,
+      "new_ms": 29654,
+      "pool_ms": 0.002,
+      "initial_rank_ms": 192,
+      "mechanism_rank_ms": 967,
+      "question_rank_ms": 20681,
+      "prompt_sha256": "d8801c16bb5d9e4b861aadc5adcf5bd6072c3d7761372c30862757c90adf4ea1",
+      "ordered_evidence_sha256": "c6ead4c389644e673f0cf47ee10032c9046652d5c0d50462979782b29ada7e90",
+      "allowed_evidence_count": 28,
+      "cited_ids": [
+        "ygoresources-qa-23530",
+        "ocg-rule:c03/卡片的抗性#p30-34",
+        "ocg-rule:c03/卡片的抗性#p24-28"
+      ]
+    }
+  ]
+}

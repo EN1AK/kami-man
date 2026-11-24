@@ -1,0 +1,25 @@
+[Unit]
+Description=OCG ruling RAG for Kami Man
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/qqbot/ygo-ruling
+EnvironmentFile=/home/ubuntu/qqbot/ygo-ruling/ruling.env
+Environment=PYTHONUTF8=1
+Environment=PYTHONPATH=/home/ubuntu/qqbot/kami-man/deploy
+Environment=RAG_DEVICE=cpu
+Environment=RAG_CARDS_DB=/home/ubuntu/qqbot/shared-ygo/cards.cdb
+Environment=YGOCDB_CACHE_PATH=/home/ubuntu/qqbot/ygo-rag/data/ygocdb
+Environment=OCG_RULES_EPUB=/home/ubuntu/qqbot/ygo-rag/ocg-rule-readthedocs-io-zh-cn-latest.epub
+Environment=RAG_RULING_FAQ_INDEX_PATH=/home/ubuntu/qqbot/ygo-rag/data/ruling_faq_chroma
+Environment=RAG_RULING_RULES_INDEX_PATH=/home/ubuntu/qqbot/ygo-rag/data/ruling_rules_chroma
+Environment=RAG_RULING_FAQ_MANIFEST=/home/ubuntu/qqbot/ygo-rag/data/ruling_faq_chroma/manifest.json
+Environment=RAG_RULING_RULES_MANIFEST=/home/ubuntu/qqbot/ygo-rag/data/ruling_rules_chroma/manifest.json
+Environment=RAG_REQUEST_TIMEOUT=300
+Environment=DEEPSEEK_TIMEOUT_SECONDS=285
+ExecStart=/home/ubuntu/qqbot/ygo-rag/.venv/bin/python -m uvicorn ygo_ruling_server:create_ruling_app --factory --host 127.0.0.1 --port 7863
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

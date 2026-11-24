@@ -1,0 +1,245 @@
+diff --git a/backend/ragEvidenceRetriever.mjs b/backend/ragEvidenceRetriever.mjs
+--- a/backend/ragEvidenceRetriever.mjs
++++ b/backend/ragEvidenceRetriever.mjs
+@@ -3064,6 +3064,7 @@ function rankOfficialQaQuestionBranches({
+   const safeCandidateLimit = Math.max(1, Math.floor(Number(candidateLimit) || 16));
+   const perQueryLimit = Math.max(2, Math.min(6, Math.ceil(safeCandidateLimit / queryPlans.length)));
+   const questionProfiles = prepareOfficialQaQuestionTextProfiles(records);
++  const postings = indexRequestedQuestionGrams(questionProfiles, queryPlans);
+   const merged = new Map();
+   const reservedSurfaceHeadKeys = new Set();
+   for (const { query, questions, scenarioQuestion, queryKey } of queryPlans) {
+@@ -3188,6 +3189,7 @@ function rankOfficialQaQuestionBranches({
+         question,
+         contextText: [query.subclaim, question].filter(Boolean).join(" "),
+         profiles: questionProfiles,
++        postings,
+         limit: Math.min(4, perQueryLimit),
+       });
+       phraseMatches.slice(0, 4).forEach((match) => {
+@@ -3390,9 +3392,45 @@ function prepareOfficialQaQuestionTextProfiles(records = []) {
+   }).filter(Boolean);
+ }
+ 
++// Only index the grams requested by this planner. Posting lists use profile order;
++// a repeated gram in different segments of one question still counts once.
++function indexRequestedQuestionGrams(profiles, plans) {
++  const postings = new Map();
++  for (const { questions } of plans) {
++    for (const question of questions) {
++      const segments = normalizeCjkQuestionSegments(question);
++      for (const size of [3, 4]) {
++        for (const gram of uniqueCjkNgrams(segments, size)) {
++          if (!postings.has(gram)) postings.set(gram, []);
++        }
++      }
++    }
++  }
++  for (const [index, profile] of profiles.entries()) {
++    for (const segment of profile.cjkSegments) {
++      for (const size of [3, 4]) {
++        for (let offset = 0; offset + size <= segment.length; offset++) {
++          const hits = postings.get(segment.slice(offset, offset + size));
++          if (hits && hits[hits.length - 1] !== index) hits.push(index);
++        }
++      }
++    }
++  }
++  return postings;
++}
++
++function countQueryGramHits(grams, postings, profileCount) {
++  const counts = new Uint32Array(profileCount);
++  for (const gram of grams) {
++    for (const index of postings.get(gram)) counts[index]++;
++  }
++  return counts;
++}
++
+ function rankOfficialQaQuestionTextProfiles({
+   question = "",
+   contextText = question,
++  postings,
+   profiles = [],
+   limit = 6,
+ } = {}) {
+@@ -3422,23 +3460,20 @@ function rankOfficialQaQuestionTextProfiles({
+ 
+   const minimumHits = Math.max(3, Math.ceil(queryGrams.length * 0.12));
+   const preliminary = [];
+-  for (const profile of profiles || []) {
+-    let fourGramHitCount = 0;
+-    for (const gram of queryGrams) {
+-      if (profile.cjkSegments.some((segment) => segment.includes(gram))) {
+-        fourGramHitCount += 1;
+-      }
+-    }
+-    let threeGramHitCount = 0;
+-    for (const gram of queryThreeGrams) {
+-      if (profile.cjkSegments.some((segment) => segment.includes(gram))) {
+-        threeGramHitCount += 1;
+-      }
+-    }
++  const fourGramHits = countQueryGramHits(queryGrams, postings, profiles.length);
++  const threeGramHits = countQueryGramHits(queryThreeGrams, postings, profiles.length);
++  for (const [index, profile] of profiles.entries()) {
++    const fourGramHitCount = fourGramHits[index];
++    const threeGramHitCount = threeGramHits[index];
++    if (fourGramHitCount < minimumHits && threeGramHitCount < 2) continue;
+     const mechanismMatch = bestRuleMechanismMatch(
+       [queryMechanismSignature],
+       profile.evidenceMechanismSignature,
+     );
++    const mechanismAnchoredShortMatch = mechanismMatch.matchedStrongFeatures.length >= 1
++      && Number(mechanismMatch.strongQueryCoverage || 0) >= 0.5
++      && threeGramHitCount >= 2;
++    if (fourGramHitCount < minimumHits && !mechanismAnchoredShortMatch) continue;
+     let headlineThreeGramHitCount = 0;
+     for (const gram of queryThreeGrams) {
+       if (profile.headlineCjkSegments.some((segment) => segment.includes(gram))) {
+@@ -3461,10 +3496,6 @@ function rankOfficialQaQuestionTextProfiles({
+       .filter((phrase) => profile.headlineEffectPhrases.includes(phrase)).length;
+     const headlineDistinctiveSemanticHitCount = queryDistinctiveSemanticConcepts
+       .filter((concept) => profile.headlineSemanticConcepts.includes(concept)).length;
+-    const mechanismAnchoredShortMatch = mechanismMatch.matchedStrongFeatures.length >= 1
+-      && Number(mechanismMatch.strongQueryCoverage || 0) >= 0.5
+-      && threeGramHitCount >= 2;
+-    if (fourGramHitCount < minimumHits && !mechanismAnchoredShortMatch) continue;
+     preliminary.push({
+       ...profile,
+       fourGramHitCount,
+diff --git a/backend/officialQaMatcher.mjs b/backend/officialQaMatcher.mjs
+--- a/backend/officialQaMatcher.mjs
++++ b/backend/officialQaMatcher.mjs
+@@ -1,6 +1,7 @@
+ import { hasNumberedCardIdentityConflict } from "./numberedCardIdentity.mjs";
+ import {
+   compareEvidenceScenarioPremises,
++  classifyEvidenceScenarioPremises,
+   classifyEvidenceQuestionTypes,
+   classifyMultiEntityDecisionScope,
+ } from "./evidenceQuestionTypeClassifier.mjs";
+@@ -229,11 +230,17 @@ export function searchOfficialQaEvidence({
+     cards: resolvedCards,
+   });
+ 
++  const queryPremises = classifyEvidenceScenarioPremises(query);
++  const queryBigrams = bigrams(normalizedQuery);
++  const skeletonBigrams = bigrams(normalizedQuerySkeleton);
+   const scored = (records || [])
+     .filter((record) => ["qa", "card-faq", "official-database"].includes(record.recordType))
+     .map((record) => scoreRecord({
+       record,
+       query,
++      queryPremises,
++      queryBigrams,
++      skeletonBigrams,
+       normalizedQuery,
+       normalizedQuerySkeleton,
+       queryType,
+@@ -303,6 +310,9 @@ export function resolveEntitiesFromOfficialQaMatch({ resolution = {}, matches, c
+ function scoreRecord({
+   record,
+   query,
++  queryPremises,
++  queryBigrams,
++  skeletonBigrams,
+   normalizedQuery,
+   normalizedQuerySkeleton,
+   queryType,
+@@ -318,6 +328,7 @@ function scoreRecord({
+   const {
+     questionText,
+     scenarioQuestionText,
++    evidencePremises,
+     normalizedRecordQuestionVariants,
+     normalizedRecordPrincipalQuestionVariants,
+     normalizedRecordQuestionSkeletonVariants,
+@@ -344,7 +355,7 @@ function scoreRecord({
+     { cards: resolvedCards },
+   );
+   const evidenceMultiBranchQuery = classifyMultiEntityDecisionScope(scenarioQuestionText).multiBranch;
+-  const scenarioPremiseComparison = compareEvidenceScenarioPremises(query, scenarioQuestionText);
++  const scenarioPremiseComparison = compareEvidenceScenarioPremises(queryPremises, evidencePremises);
+   const scenarioPremiseAuthorityCompatible = scenarioPremiseComparison.compatibility === "compatible";
+   const scenarioPremiseRawExactCompatible = scenarioPremiseAuthorityCompatible
+     || scenarioPremiseComparison.compatibility === "unknown";
+@@ -363,13 +374,13 @@ function scoreRecord({
+     (surface) => containmentScore(normalizedQuery, surface || normalizedRecordText),
+   ));
+   const similarity = Math.max(...normalizedRecordQuestionVariants.map(
+-    (surface) => diceSimilarity(normalizedQuery, surface || normalizedRecordText.slice(0, normalizedQuery.length * 2)),
++    (surface) => diceSimilarity(normalizedQuery, queryBigrams, surface || normalizedRecordText.slice(0, normalizedQuery.length * 2)),
+   ));
+   const skeletonContainment = Math.max(...normalizedRecordQuestionSkeletonVariants.map(
+     (surface) => containmentScore(normalizedQuerySkeleton, surface),
+   ));
+   const skeletonSimilarity = Math.max(...normalizedRecordQuestionSkeletonVariants.map(
+-    (surface) => diceSimilarity(normalizedQuerySkeleton, surface),
++    (surface) => diceSimilarity(normalizedQuerySkeleton, skeletonBigrams, surface),
+   ));
+   const phraseHits = queryPhrases.filter((phrase) => evidencePhrases.includes(phrase));
+   const queryMatchingConcepts = normalizeSemanticConceptsForMatching(queryConcepts);
+@@ -478,14 +489,15 @@ function scoreRecord({
+   // Branch scope is established only by identities in the official question.
+   // Cards that appear solely in an answer/example remain retrieval signals and
+   // must never be treated as a covered decision branch.
+-  const relatedQuestionBranches = questionBranches.map((branch) => ({
++  // A supporting branch requires a matched query card ID.
++  const relatedQuestionBranches = resolvedIds.size ? questionBranches.map((branch) => ({
+     ...branch,
+     relatedCardIds: new Set([
+       ...branch.cardIds,
+       ...matchQuestionSideCardAliases(branch.text, resolvedCards),
+     ]),
+-  }));
+-  const supportingBranch = selectSupportingQuestionBranch({
++  })) : [];
++  const supportingBranch = relatedQuestionBranches.length ? selectSupportingQuestionBranch({
+     branches: relatedQuestionBranches,
+     query,
+     queryType,
+@@ -495,7 +507,7 @@ function scoreRecord({
+     resolvedCards,
+     queryPlayerRoleSignature,
+     requireFullQueryIdentity: !multiBranchQuery && resolvedIds.size > 1,
+-  });
++  }) : null;
+   const branchMatchedCardIds = supportingBranch?.matchedCardIds
+     || [...new Set(matchedRelatedQuestionCardIds)];
+   const fullQuestionExact = exactPrincipalNormalized && exactQuestionCardIdSet;
+@@ -1212,6 +1224,7 @@ function officialQaRecordFeatures(record = {}) {
+   const features = {
+     questionText,
+     scenarioQuestionText,
++    evidencePremises: classifyEvidenceScenarioPremises(scenarioQuestionText),
+     normalizedRecordQuestion: normalizedRecordQuestionVariants[0] || "",
+     normalizedRecordQuestionVariants: normalizedRecordQuestionVariants.length
+       ? normalizedRecordQuestionVariants
+@@ -1292,13 +1305,13 @@ function containmentScore(left, right) {
+   return Math.min(left.length, right.length) / Math.max(left.length, right.length);
+ }
+ 
+-function diceSimilarity(left, right) {
++function diceSimilarity(left, leftGrams, right) {
+   if (!left || !right) return 0;
+   if (left === right) return 1;
+-  const a = bigrams(left);
+-  const b = bigrams(right);
+-  const overlap = [...a].filter((item) => b.has(item)).length;
+-  return (2 * overlap) / Math.max(1, a.size + b.size);
++  const rightGrams = bigrams(right);
++  let overlap = 0;
++  for (const gram of leftGrams) if (rightGrams.has(gram)) overlap++;
++  return (2 * overlap) / Math.max(1, leftGrams.size + rightGrams.size);
+ }
+ 
+ function setDiceSimilarity(left, right) {
+@@ -1441,6 +1454,7 @@ function cardAliases(card = {}) {
+  * The result is a related-retrieval signal only.
+  */
+ function matchQuestionSideCardAliases(value, cards = []) {
++  if (!cards?.length) return new Set();
+   const text = normalizeOfficialQaQuery(value);
+   if (!text) return new Set();
+ 

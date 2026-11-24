@@ -25,7 +25,7 @@ from services.ygo_api import (
 ck = on_command("ck", aliases={"查卡"}, priority=5)
 card_pic = on_command("查卡图", aliases={"卡图"}, priority=5)
 pl = on_command("pl", aliases={"批量查卡"}, priority=5)
-ruling = on_command("裁定", aliases={"ruling", "查裁定"}, priority=5)
+ruling = on_command("裁定", aliases={"ruling", "查裁定"}, priority=5, block=True)
 
 RULINGS_PER_PAGE = 10
 PAGE_PATTERN = re.compile(r"^(?:p|page)?(\d+)$|^第(\d+)页$", re.IGNORECASE)

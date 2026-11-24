@@ -55,6 +55,69 @@ ws://host.docker.internal:18080/onebot/v11/ws
 
 ## Current RAG Agent Contract
 
+The group command `@裁定查询 问题` posts `{"scenario": "...", "llm": true}`
+to `http://127.0.0.1:7863/api/adjudicate`. The Node reference worker
+`deploy/ygo_reference_ruling.mjs` uses the pinned upstream evidence
+pipeline to prepare a draft, audit evidence coverage, and supplement once
+when the audit finds a gap. Deploy the pinned backend and its dependencies
+in `reference-rag-pins`, the versioned snapshot and pointer in
+`reference-rag-corpora`, and run the worker from their parent directory.
+Keep the snapshot pointer and its manifest together. The current source
+revision is `33325` and its corpus revision starts with `0c3a0892`.
+
+For the backend pinned at `41c6b896`, apply
+`git apply --ignore-space-change /path/to/ygo-reference-faq-cache.patch`
+from the root of the extracted backend package containing `backend/`.
+The unpatched `backend/ragEvidenceRetriever.mjs` has SHA-256
+`acd4c44d26436b222626db5800c3f8bbea5fde7e77d33f3458ed62114e717a50`.
+The worker caches the official cross-card question pool per corpus object.
+It reports initial and supplemental retrieval in `timings_ms` and logs
+`ruling_timings` to the service journal. Preparation and retrieval totals
+include nested stages. The QQ reply shows the four cross-card timings summed
+over the retrieval passes that ran.
+
+Apply `deploy/ygo-reference-question-match.patch` second using the same
+`git apply --ignore-space-change` command. It updates both
+`ragEvidenceRetriever.mjs` and `officialQaMatcher.mjs`. The retriever builds
+posting lists for the three- and four-character grams requested by the current
+planner. The official matcher reuses query features across candidates and
+stores each record's scenario classification alongside its existing features.
+Deploy or roll back the two files together before restarting the worker.
+
+Install the base unit and copy `deploy/ygo-ruling.service.d/corpus.conf` to
+`/etc/systemd/system/ygo-ruling.service.d/corpus.conf` for the Node worker.
+Run `systemctl daemon-reload` before restarting `ygo-ruling.service`.
+
+The previous worker remains available for rollback. Deploy the upstream ygo-rag
+revision `b751074dae27fc55109a2ee8ae91f8b08c422b74` into
+`/home/ubuntu/qqbot/ygo-ruling` and install `deploy/ygo-ruling.service`
+as a systemd unit. The unit uses the shared card database, FAQ and rules
+indexes, and the existing ygo-rag Python environment.
+
+Set `YGO_RULING_OPENAI_API_KEY` in the ruling checkout's private
+`ruling.env` (mode 0600). The service uses `gpt-6.2-sol` with
+`reasoning.effort=high` through the OpenAI Responses API.
+
+The ruling worker can also read a verified Home corpus using
+`YGO_RULING_CORPUS` with an absolute SQLite index path. Build the index with
+`python3 deploy/ygo_ruling_corpus.py VERIFIED_DATA_DIR OUTPUT.sqlite3`.
+The builder checks the snapshot manifest hashes and joins Q&A records with
+the current version of each source. It also indexes active OCG rule passages.
+Deploy both Python files from `deploy/` together. Production keeps them in
+the versioned corpus directory and selects its adapter with Uvicorn's
+`--app-dir` in `ygo-ruling.service.d/corpus.conf`. The worker opens the
+database read-only, prefers the Home version of matching FAQ IDs, and adds
+its results to the existing evidence retrieval.
+
+For hybrid retrieval, use `deploy/ygo_ruling_vectors.py` on Home to export
+the published Chroma collections. Transfer the export and the matching rule
+EPUB, verify their checksums, then configure `YGO_RULING_VECTOR_DIR`,
+`YGO_RULING_VECTOR_MODEL` (the local BGE-M3 model directory), and
+`OCG_RULES_EPUB` on the dedicated ruling service. Deploy the three
+`ygo_ruling_*.py` adapter files together. The worker checks the corpus
+revision and rule IDs, prewarms the CPU query encoder, and combines vector
+results with the existing full-text search within the same candidate budget.
+
 The bot calls:
 
 ```text

@@ -1,0 +1,93 @@
+diff --git a/backend/ragEvidenceRetriever.mjs b/backend/ragEvidenceRetriever.mjs
+--- a/backend/ragEvidenceRetriever.mjs
++++ b/backend/ragEvidenceRetriever.mjs
+@@ -56,6 +56,7 @@ const emptyDataArray = Object.freeze([]);
+ const normalizedCardArrayCache = new WeakMap();
+ const normalizedRecordArrayCache = new WeakMap();
+ const normalizedDataCache = new WeakMap();
++const crossCardQuestionPoolCache = new WeakMap();
+ const evidenceRecordBucketsCache = new WeakMap();
+ const evidenceListCache = new WeakMap();
+ const retrievalRecordFeatureCache = new WeakMap();
+@@ -515,17 +516,25 @@ export async function retrieveRagEvidence({
+   // The pre-planner pass only needs a small question-only sample. Keep this as
+   // one aggregate scan; independent branch heads are built after the planner,
+   // where they can use both deterministic and model-supplied queries.
++  const poolStartedAt = performance.now();
++  let questionPool = crossCardQuestionPoolCache.get(recordBuckets);
++  const crossCardPoolCacheHit = questionPool !== undefined;
++  if (!crossCardPoolCacheHit) {
++    questionPool = dedupeBy([...recordBuckets.officialQa, ...recordBuckets.faq], stableRecordKey)
++      .filter(hasOfficialQuestionSurface);
++    crossCardQuestionPoolCache.set(recordBuckets, questionPool);
++  }
++  timingsMs.crossCardPool = performance.now() - poolStartedAt;
++  const initialRankStartedAt = performance.now();
+   const initialCrossCardRankedSource = rankRecords({
+     userQuery,
+-    records: dedupeBy([
+-      ...recordBuckets.officialQa,
+-      ...recordBuckets.faq,
+-    ], stableRecordKey).filter(hasOfficialQuestionSurface),
++    records: questionPool,
+     resolvedCards: [],
+     mentionQueries: [],
+     ruleSearchQueries: deterministicRuleQueries,
+     allowNoCardMatch: true,
+   });
++  timingsMs.crossCardInitialRank = performance.now() - initialRankStartedAt;
+   if (traceLineage) {
+     emitRagLineageListTrace(lineageTraceSink, {
+       type: "SOURCE_RETURNED",
+@@ -991,10 +1000,7 @@ export async function retrieveRagEvidence({
+   // pool with the same rule-query plan and keep a small, bounded related-only
+   // reserve. This never upgrades an analogy to a direct ruling and never uses
+   // the answer text to resolve card identity.
+-  const crossCardOfficialQuestionPool = applyModelAssessmentsToRecords(dedupeBy([
+-    ...recordBuckets.officialQa,
+-    ...recordBuckets.faq,
+-  ], stableRecordKey).filter(hasOfficialQuestionSurface), modelAssessmentById);
++  const crossCardOfficialQuestionPool = applyModelAssessmentsToRecords(questionPool, modelAssessmentById);
+   const eligibleCrossCardOfficialPool = effectiveQaIdentityCards.length
+     ? crossCardOfficialQuestionPool.filter(
+       (record) => !recordSharesResolvedIdentity(record, effectiveQaIdentityCards),
+@@ -1009,6 +1015,7 @@ export async function retrieveRagEvidence({
+   const modelAssessedCrossCardCandidates = eligibleCrossCardOfficialPool
+     .filter((item) => hasEligibleModelCandidateAssessment(item))
+     .sort(compareRetrievedRecords);
++  const mechanismRankStartedAt = performance.now();
+   const strictMechanismCrossCardRankedSource = eligibleCrossCardOfficialPool.length
+     ? rankRecordsWithSupplementalQueries({
+         userQuery,
+@@ -1026,6 +1033,7 @@ export async function retrieveRagEvidence({
+         allowNoCardMatch: true,
+       })
+     : [];
++  timingsMs.crossCardMechanismRank = performance.now() - mechanismRankStartedAt;
+   if (traceLineage) {
+     emitRagLineageListTrace(lineageTraceSink, {
+       type: "SOURCE_RETURNED",
+@@ -1051,6 +1059,7 @@ export async function retrieveRagEvidence({
+       preLimitObservable: false,
+     });
+   }
++  const questionRankStartedAt = performance.now();
+   const questionBranchCrossCardCandidates = rankOfficialQaQuestionBranches({
+     records: eligibleCrossCardOfficialPool,
+     // Keep all four bounded model subclaims plus one deterministic user/card-
+@@ -1060,6 +1069,7 @@ export async function retrieveRagEvidence({
+     supplementalRuleQueryKeys: independentRuleQueryKeys,
+     candidateLimit: crossCardOfficialCandidateLimit,
+   });
++  timingsMs.crossCardQuestionRank = performance.now() - questionRankStartedAt;
+   if (traceLineage) {
+     emitRagLineageListTrace(lineageTraceSink, {
+       type: "SOURCE_RETURNED",
+@@ -1435,6 +1445,7 @@ export async function retrieveRagEvidence({
+     ruleSearchQueries: normalizedRuleQueries,
+     retrievalWarnings,
+     debug: {
++      crossCardPoolCacheHit,
+       searchPaths: officialMatches.searchPaths || [],
+       recordCount: allEvidenceRecords.length,
+       cardCount: data.cards.length,
