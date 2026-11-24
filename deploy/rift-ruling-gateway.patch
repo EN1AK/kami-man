@@ -1,0 +1,23 @@
+diff --git a/rag_agent/rift_tools.py b/rag_agent/rift_tools.py
+--- a/rag_agent/rift_tools.py
++++ b/rag_agent/rift_tools.py
+@@ -1,5 +1,6 @@
+ """In-process adapters. No HTTP call or runtime mutation of global credentials."""
+ from functools import lru_cache
++import os
+ import threading
+ from rag_agent.deadline import remaining
+ from rag_agent.shared_embeddings import get_embeddings
+@@ -13,6 +14,12 @@ def runtime():
+             _runtime=RiftRuntime(RiftConfig.from_env(),get_embeddings,remaining)
+         return _runtime
+ def query_rules(query,top_k=6,trace=False,mode=None):
++    endpoint = os.getenv("RIFT_RULING_BASE_URL")
++    if endpoint:
++        from rag_agent.rift_gateway import _default_transport
++        return _default_transport(endpoint.rstrip("/") + "/api/query", {
++            "query": query, "top_k": top_k, "mode": mode or "agent", "trace": trace,
++        }, remaining(240))
+     return runtime().query(query,top_k,trace,mode or "agent")
+ def search_cards(query="",top_k=10,*,filters=None,effect_query="",offset=0,sort_by="card_key"):
+     from rift_rag.card_search import search_catalog

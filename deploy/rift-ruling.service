@@ -1,0 +1,18 @@
+[Unit]
+Description=Riftbound evidence-based rulings
+After=network-online.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/qqbot/rift-ruling/3e5a3a9
+EnvironmentFile=/home/ubuntu/qqbot/ygo-ruling/ruling.env
+Environment=PYTHONPATH=/home/ubuntu/qqbot/rift-ruling/3e5a3a9/src
+Environment=RIFT_BGE_MODEL=/home/ubuntu/qqbot/ygo-ruling/corpora/e72ec0f9/bge-runtime
+Environment=OPENBLAS_NUM_THREADS=1
+ExecStart=/home/ubuntu/qqbot/ygo-rag/.venv/bin/python rift_reference_ruling.py
+MemoryMax=2400M
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
