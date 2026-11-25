@@ -22,13 +22,15 @@ from scripts.bilibili_link_preview import VIDEO_ID, summarize_video, video_id
 
 GROUP_ID = 819151070
 LUKE = 3706939584285247
+MINAZUKI = 1958342
+LIVE_CREATORS = (LUKE, MINAZUKI)
 # UID -> (display name, follow dynamics)
 CREATORS = {
     LUKE: ("卢克TCG", True),
     23344361: ("Nron2093", True),
     6267249: ("水桥卡牌", True),
     599193: ("Luminous_J", False),
-    1958342: ("水无月菌", True),
+    MINAZUKI: ("水无月菌", True),
     1955897084: ("鸣潮", True),
     3546795158276766: ("符文战场", True),
     519200091: ("游戏王卡片游戏", True),
@@ -355,5 +357,5 @@ async def poll_posts():
 @scheduler.scheduled_job("interval", minutes=2, id="bilibili_live", max_instances=1, coalesce=True,
                          next_run_time=datetime.now(timezone.utc))
 async def poll_live():
-    await collect([(LUKE, livestream)])
+    await collect([(uid, livestream) for uid in LIVE_CREATORS])
     await deliver()
